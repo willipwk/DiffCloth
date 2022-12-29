@@ -17,7 +17,7 @@ if (APPLE)
     set(ENV{CPPFLAGS} "-I/usr/local/opt/libomp/include")
 
     set(OpenMP_omp_LIBRARY "/usr/local/opt/libomp/lib/libomp.dylib")
-    set(OpenMP_libomp_LIBRARY "/user/local/opt/libomp/lib/libomp.dylib")
+    set(OpenMP_libomp_LIBRARY "/usr/local/opt/libomp/lib/libomp.dylib")
 
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
         set(OpenMP_C_LIB_NAMES "libomp")
