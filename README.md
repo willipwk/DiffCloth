@@ -5,14 +5,24 @@ Code repository for our paper [DiffCloth: Differentiable Cloth Simulation with D
 [📃 Paper](https://people.csail.mit.edu/liyifei/uploads/diffcloth-highres-tog.pdf) | [🌍 Project](https://people.csail.mit.edu/liyifei/publication/diffcloth/)
 
 ### Tested Operating Systems
-Ubuntu 22.04 | Mac OS 12
+Mac OS Monterey 12.6.2 (with Python 3.10.9)
 
 ### 1. Download the repo:
 **Make sure to use the `--recursive` option** to install the dependencies
 
-`git clone --recursive https://github.com/omegaiota/DiffCloth.git`
+`git clone --recursive https://github.com/friolero/DiffCloth.git`
 
-### 2. Build CPP code with Cmake:
+### 2. Install dependencies 
+```
+brew install llvm@14
+brew install libomp
+cd /user/local/
+ln -sf llvm@14 llvm
+cd /usr/local/opt/llvm/bin
+ln -sf /usr/local/bin/clang-omp++
+```
+
+### 3. Build CPP code with Cmake:
 From the top directory:
 ```
 mkdir build
@@ -20,7 +30,7 @@ cd build
 cmake ..
 make
 ```
-### 3. Optimize/Visualize Section 6 Experiments:
+### 4. Optimize/Visualize Section 6 Experiments:
 
 * Run optimization:
     ```
@@ -51,7 +61,7 @@ make
 
 The progress of the optimization is saved into the `output/` directory of the root folder. Intermediate progress are visualized using the custom written OpenGL viewer.
 
-### 4. Build Python Binding and Run Hat Controller example:
+### 5. Build Python Binding and Run Hat Controller example:
 Build Python Binding:
 
 - Install anaconda for virtual environment.

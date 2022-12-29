@@ -17,13 +17,16 @@ if (APPLE)
     set(ENV{CPPFLAGS} "-I/usr/local/opt/libomp/include")
 
     set(OpenMP_omp_LIBRARY "/usr/local/opt/libomp/lib/libomp.dylib")
+    set(OpenMP_libomp_LIBRARY "/user/local/opt/libomp/lib/libomp.dylib")
 
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        set(OpenMP_C_LIB_NAMES "libomp")
         set(OpenMP_C "${CMAKE_C_COMPILER}" CACHE STRING "" FORCE)
         set(OpenMP_C_FLAGS "-Xpreprocessor  -fopenmp -lomp -Wno-unused-command-line-argument" CACHE STRING "" FORCE)
 
     endif()
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set(OpenMP_CXX_LIB_NAMES "libomp")
         set(OpenMP_CXX "${CMAKE_CXX_COMPILER}" CACHE STRING "" FORCE)
         set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp -lomp -Wno-unused-command-line-argument -I/usr/local/opt/libomp/include" CACHE STRING "" FORCE)
 
@@ -131,14 +134,7 @@ target_link_libraries(${EXECUTABLE_NAME} nanogui ${NANOGUI_EXTRA_LIBS})
 target_link_libraries(${EXECUTABLE_NAME} OpenMP::OpenMP_CXX)
 target_include_directories(${EXECUTABLE_NAME} PRIVATE ${EXTERNAL_HEADER})
 
-# python binding
-if (APPLE)
-    set(PYTHON_INCLUDE_DIR "$ENV{HOME}/opt/anaconda3/include/python3.8")
-    set(PYTHON_LIBRARIES "$ENV{HOME}/opt/anaconda3/lib/libpython3.8.dylib")
-endif ()
-
-#find_package(PythonLibs 3.8 REQUIRED )
-find_package(Python 3.8 COMPONENTS Interpreter Development)
+find_package(Python 3.10.9 COMPONENTS Interpreter Development)
 #message(${PYTHON_INCLUDE_DIRS})
 include_directories(${PYTHON_INCLUDE_DIRS})
 include_directories(external/pybind11/include)
