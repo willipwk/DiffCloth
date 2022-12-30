@@ -5,7 +5,7 @@ Code repository for our paper [DiffCloth: Differentiable Cloth Simulation with D
 [📃 Paper](https://people.csail.mit.edu/liyifei/uploads/diffcloth-highres-tog.pdf) | [🌍 Project](https://people.csail.mit.edu/liyifei/publication/diffcloth/)
 
 ### Tested Operating Systems
-Mac OS Monterey 12.6.2 (with Python 3.10.9)
+Mac OS Monterey 12.6.2 (with Python 3.8)
 
 ### 1. Download the repo:
 **Make sure to use the `--recursive` option** to install the dependencies
@@ -14,6 +14,8 @@ Mac OS Monterey 12.6.2 (with Python 3.10.9)
 
 ### 2. Install dependencies 
 ```
+virtualenv --python=PATH_TO_PYTHON3.8 diffcloth
+source diffcloth/bin/activate
 brew install llvm@14
 brew install libomp
 cd /user/local/
@@ -65,7 +67,7 @@ The progress of the optimization is saved into the `output/` directory of the ro
 Build Python Binding:
 
 - Install anaconda for virtual environment.
-- In project root folder, run `python setup.py install` to install the python binding package. Rerun this command if you modify the CPP code.
+- In project root folder, run `pip install -r requirements.txt && python setup.py install` to install the python binding package. Rerun this command if you modify the CPP code.
 - Create conda virtual environment: `conda env create python=3.8 --file environment.yml`, and activate it through `conda activate diffcloth`
 
 Train/Test Hat Controller example:

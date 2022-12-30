@@ -134,7 +134,7 @@ target_link_libraries(${EXECUTABLE_NAME} nanogui ${NANOGUI_EXTRA_LIBS})
 target_link_libraries(${EXECUTABLE_NAME} OpenMP::OpenMP_CXX)
 target_include_directories(${EXECUTABLE_NAME} PRIVATE ${EXTERNAL_HEADER})
 
-find_package(Python 3.10.9 COMPONENTS Interpreter Development)
+find_package(Python 3.8 COMPONENTS Interpreter Development)
 #message(${PYTHON_INCLUDE_DIRS})
 include_directories(${PYTHON_INCLUDE_DIRS})
 include_directories(external/pybind11/include)
