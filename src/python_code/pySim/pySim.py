@@ -1,20 +1,19 @@
-from typing import Optional, Mapping, Tuple, Sequence, NoReturn, Union
+from typing import Mapping, NoReturn, Optional, Sequence, Tuple, Union
 
+import diffcloth_py as diffcloth
 import torch
 import torch.nn as nn
 from torch import Tensor
-
-import diffcloth_py as diffcloth
 
 from .functional import SimFunction
 
 
 class pySim(nn.Module):
-
-    def __init__(self,
-    cppSim: diffcloth.Simulation,
-    optimizeHelper: diffcloth.OptimizeHelper,
-    useFixedPoint: bool
+    def __init__(
+        self,
+        cppSim: diffcloth.Simulation,
+        optimizeHelper: diffcloth.OptimizeHelper,
+        useFixedPoint: bool,
     ) -> NoReturn:
         super().__init__()
         self.cppSim = cppSim
@@ -22,12 +21,6 @@ class pySim(nn.Module):
 
         self.cppSim.useCustomRLFixedPoint = useFixedPoint
 
-    def forward(
-            self,
-            x: Tensor,
-            v: Tensor,
-            a: Tensor
-    ) -> Tuple[Tensor, Tensor]:
+    def forward(self, x: Tensor, v: Tensor, a: Tensor) -> Tuple[Tensor, Tensor]:
 
-        return SimFunction.apply(
-            x, v, a, self.cppSim, self.optimizeHelper)
+        return SimFunction.apply(x, v, a, self.cppSim, self.optimizeHelper)

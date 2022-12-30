@@ -2,20 +2,13 @@ import math
 from collections import deque
 
 import numpy as np
-
 import torch
+import torch.autograd as autograd
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.autograd as autograd
-
 from torch import Tensor
 
-
-__all__ = [
-    'Controller',
-    'ClosedController',
-    'IndClosedController']
-
+__all__ = ["Controller", "ClosedController", "IndClosedController"]
 
 
 class LinearBlock(nn.Module):
@@ -37,22 +30,20 @@ class Controller(nn.Module):
         self.helper = optimizeHelper
 
 
-
-
-
 class ClosedController(Controller):
-    def __init__(self, cppSim, optimizeHelper,  widths, dropout=0.0):
+    def __init__(self, cppSim, optimizeHelper, widths, dropout=0.0):
         super().__init__(cppSim, optimizeHelper)
         self.layers = nn.ModuleList()
         for i in range(len(widths) - 1):
             in_feature, out_features = widths[i], widths[i + 1]
             if i < len(widths) - 2:
-                self.layers.append(LinearBlock(
-                    in_feature, out_features))
+                self.layers.append(LinearBlock(in_feature, out_features))
             else:
                 if dropout > 0.0:
                     self.layers.append(nn.Dropout(p=dropout))
-                self.layers.append(nn.Linear(widths[i], widths[i + 1], bias=True))
+                self.layers.append(
+                    nn.Linear(widths[i], widths[i + 1], bias=True)
+                )
 
     def reset_parameters(self, gain=1.0, last_w=1.0):
         modules = list(self.modules())
@@ -69,12 +60,13 @@ class ClosedController(Controller):
         raise NotImplementedError
 
 
-
 class IndClosedController(ClosedController):
     def __init__(self, cppSim, optimizeHelper, widths, dropout=0.0):
         super().__init__(cppSim, optimizeHelper, widths, dropout)
         ndof_u = cppSim.ndof_u
-        self.layers[-1] = nn.Linear(self.layers[-1].in_features, self.layers[-1].out_features, bias=True)
+        self.layers[-1] = nn.Linear(
+            self.layers[-1].in_features, self.layers[-1].out_features, bias=True
+        )
 
     def forward(self, x) -> torch.Tensor:
         for layer in self.layers:
