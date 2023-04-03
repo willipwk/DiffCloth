@@ -183,7 +183,7 @@ public:
   };
 
   RenderMode myRendermode = FABRIC_COLOR;
-  bool visualizeCollision = false;
+  bool visualizeCollision = true;
   bool visualizeSelfCollisionLayers = false;
   bool collisionShowNormal = false;
   int selfCollisionLayerVisId = 0, perfResolution = 0;
