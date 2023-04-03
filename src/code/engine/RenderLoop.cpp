@@ -56,7 +56,8 @@ void RenderLoop::renderRecordsForSystem(
     }
 
     if (glfwGetKey(glfwWindow, GLFW_KEY_SPACE) == GLFW_PRESS) {
-      currentFrame = 0;
+      spacePressed = true;
+      //currentFrame = 0;
     }
 
     glClearColor(viewer.color_background[0], viewer.color_background[1],
@@ -72,8 +73,10 @@ void RenderLoop::renderRecordsForSystem(
 
     glfwPollEvents();
 
-    currentFrame = std::min(currentFrame + 1, N - 1);
+    //currentFrame = std::min(currentFrame + 1, N - 1);
+    currentFrame = spacePressed ? std::min(currentFrame+1, N-1) : currentFrame;
     isLastFrame = currentFrame == N - 1;
+    spacePressed = false;
   }
   glfwIconifyWindow(glfwWindow);
 }
