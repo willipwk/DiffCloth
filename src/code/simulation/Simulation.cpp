@@ -1870,7 +1870,12 @@ void Simulation::initScene() {
   }
 
   case PLANE_AND_SPHERE: {
-    primitives.push_back(&sphere2);
+    // primitives.push_back(&sphere2);
+    primitives.push_back(&plane1);
+    // for (Particle &p : particles) {
+    //   p.velocity_init = p.velocity = Vec3d(0, -9.8, 0);
+    // }
+
     break;
   }
 
@@ -1934,13 +1939,14 @@ void Simulation::initScene() {
   case PLANE_AND_SPHERE: {
     Vec3d centerLowPoint = 0.5 * (restShapeMinDim + restShapeMaxDim);
     centerLowPoint[1] = restShapeMinDim[1];
-    plane1.center = plane1.centerInit =
-        centerLowPoint - Vec3d(0, sphere2.radius * 2 + 0.1, 0);
-    sphere2.mu = 0.9;
-    sphere2.center = sphere2.centerInit =
-        plane1.center +
-        Vec3d(sphere2.radius * 0.3, sphere2.radius, sphere2.radius * 0.1);
-    sphere2.rotates = false;
+    plane1.center = Vec3d(0, -0.01, 0);
+    plane1.mu = 0.9;
+    // plane1.center = plane1.centerInit =
+    //     centerLowPoint - Vec3d(0, sphere2.radius * 2 + 0.1, 0);
+    // sphere2.center = sphere2.centerInit =
+    //    plane1.center +
+    //    Vec3d(sphere2.radius * 0.3, sphere2.radius, sphere2.radius * 0.1);
+    // sphere2.rotates = false;
     break;
   }
 

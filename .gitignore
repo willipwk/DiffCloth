@@ -17,3 +17,5 @@ diffcloth_py.egg-info/
 dist/
 .vscode/
 __pycache__/
+output/cloth_project/perturb*
+src/assets/meshes/clothesnet/

@@ -76,13 +76,13 @@ Simulation::FabricConfiguration OptimizationTaskConfigurations::tshirt1000 = {
 };
 
 Simulation::FabricConfiguration OptimizationTaskConfigurations::sphereFabric = {
-    .clothDimX = 4.5,
-    .clothDimY = 4.5,
-    .k_stiff_stretching = 150,
-    .k_stiff_bending = 0.00001, // 0.0005,
-    .gridNumX = 25,
-    .gridNumY = 25,
-    .density = 0.3,
+    .clothDimX = 6,
+    .clothDimY = 4,
+    .k_stiff_stretching = 100,
+    .k_stiff_bending = 0.0005,
+    .gridNumX = 30,
+    .gridNumY = 20,
+    .density = 0.1,
     .keepOriginalScalePoint = false,
     .isModel = false,
     .custominitPos = false,
@@ -228,8 +228,8 @@ Simulation::SceneConfiguration
         .camPos = Vec3d(-11.67, 20.40, -11.67),
         .camFocusPointType = CameraFocusPointType::PRIM0CENTER,
         .sceneBbox = AABB(Vec3d(-7, -7, -7), Vec3d(7, 7, 7)),
-        .timeStep = 1.0 / 180.0,
-        .stepNum = 350,
+        .timeStep = 1.0 / 100.0,
+        .stepNum = 200,
         .forwardConvergenceThresh = 1e-9,
         .backwardConvergenceThresh = 5e-4,
         .name = "rotating_sphere"
@@ -271,7 +271,6 @@ Simulation::SceneConfiguration OptimizationTaskConfigurations::tshirtScene = {
     .forwardConvergenceThresh = 1e-8,
     .backwardConvergenceThresh = 5e-4,
     .name = "wind_tshirt"
-
 };
 
 Simulation::SceneConfiguration OptimizationTaskConfigurations::dressScene = {

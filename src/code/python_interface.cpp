@@ -9,7 +9,7 @@
 
 namespace py = pybind11;
 
-Simulation *makeSim(std::string exampleName, bool runBackward = true) {
+Simulation *makeSim(std::string exampleName, bool runBackward = true, int customAttachmentVertexIdx = -1) {
   Simulation::forwardConvergenceThreshold = 1e-5;
   Simulation *sim = nullptr;
   if (exampleName == "wear_hat") {
@@ -24,6 +24,22 @@ Simulation *makeSim(std::string exampleName, bool runBackward = true) {
     Vec3d hatCenter = (sim->restShapeMinDim + sim->restShapeMaxDim) * 0.5;
     Vec3d translation = bustCenter - hatCenter;
     sim->taskLossInfo.targetTranslation = translation;
+  } else if (exampleName == "flatten_tshirt") {
+    // create simulation instance
+    Simulation::SceneConfiguration initSceneProfile =
+        OptimizationTaskConfigurations::rotatingSphereScene;
+    if (customAttachmentVertexIdx > 0){
+        initSceneProfile.attachmentPoints = AttachmentConfigs::CUSTOM_ARRAY;
+        initSceneProfile.customAttachmentVertexIdx = {{0.0, {customAttachmentVertexIdx}}};
+    } else {
+        initSceneProfile.attachmentPoints = AttachmentConfigs::NO_ATTACHMENTS;
+    }
+    sim =
+        Simulation::createSystem(initSceneProfile, Vec3d(0, 0, 0), runBackward);
+    // define fake loss
+    /*Vec3d tshirtCenter = (sim->restShapeMinDim + sim->restShapeMaxDim) * 0.5;
+    Vec3d translation = tshirtCenter;
+    sim->taskLossInfo.targetTranslation = tshirtCenter;*/
   } else if (exampleName == "wear_sock") {
     // create simulation instance
     Simulation::SceneConfiguration initSceneProfile =
@@ -116,9 +132,12 @@ OptimizeHelper *makeOptimizeHelperWithSim(std::string exampleName,
     sim->setPrintVerbose(false);
     helper =
         BackwardTaskSolver::getOptimizeHelperPointer(sim, Demos::DEMO_WEAR_HAT);
+  } else if (exampleName == "flatten_tshirt") {
+    sim->setPrintVerbose(false);
+    helper = BackwardTaskSolver::getOptimizeHelperPointer(
+        sim, Demos::DEMO_SPHERE_ROTATE);
   } else if (exampleName == "wear_sock") {
     sim->setPrintVerbose(false);
-
     helper = BackwardTaskSolver::getOptimizeHelperPointer(
         sim, Demos::DEMO_WEAR_SOCK);
   } else if (exampleName == "wind_tshirt") {
@@ -158,8 +177,12 @@ OptimizeHelper *makeOptimizeHelperWithSim(std::string exampleName,
 }
 
 OptimizeHelper *makeOptimizeHelper(std::string exampleName) {
-  Simulation::SceneConfiguration initSceneProfile =
-      OptimizationTaskConfigurations::hatScene;
+  Simulation::SceneConfiguration initSceneProfile;
+  if (exampleName == "flatten_tshirt") {
+    initSceneProfile = OptimizationTaskConfigurations::rotatingSphereScene;
+  } else if (exampleName == "wear_hat") {
+    initSceneProfile = OptimizationTaskConfigurations::hatScene;
+  }
   Simulation *sim =
       Simulation::createSystem(initSceneProfile, Vec3d(0, 0, 0), false);
   return makeOptimizeHelperWithSim(exampleName, sim);
@@ -426,7 +449,7 @@ PYBIND11_MODULE(diffcloth_py, m) {
            "compute loss and grads from parameter vector", py::arg("x"));
 
   m.def("makeSim", &makeSim, "initialize a simulation instance",
-        py::arg("exampleName"), py::arg("runBackward") = true);
+        py::arg("exampleName"), py::arg("runBackward") = true, py::arg("customAttachmentVertexIdx") = -1);
 
   m.def("makeOptimizeHelper", &makeOptimizeHelper,
         "initialize an optimize helper", py::arg("exampleName"));
