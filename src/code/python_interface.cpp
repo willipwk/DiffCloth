@@ -9,7 +9,9 @@
 
 namespace py = pybind11;
 
-Simulation *makeSim(std::string exampleName, bool runBackward = true, int customAttachmentVertexIdx = -1) {
+Simulation *makeSim(std::string exampleName, std::string objFilename,
+                    bool runBackward = true,
+                    int customAttachmentVertexIdx = -1) {
   Simulation::forwardConvergenceThreshold = 1e-5;
   Simulation *sim = nullptr;
   if (exampleName == "wear_hat") {
@@ -28,12 +30,40 @@ Simulation *makeSim(std::string exampleName, bool runBackward = true, int custom
     // create simulation instance
     Simulation::SceneConfiguration initSceneProfile =
         OptimizationTaskConfigurations::rotatingSphereScene;
-    if (customAttachmentVertexIdx > 0){
-        initSceneProfile.attachmentPoints = AttachmentConfigs::CUSTOM_ARRAY;
-        initSceneProfile.customAttachmentVertexIdx = {{0.0, {customAttachmentVertexIdx}}};
+    if (customAttachmentVertexIdx > 0) {
+      initSceneProfile.attachmentPoints = AttachmentConfigs::CUSTOM_ARRAY;
+      initSceneProfile.customAttachmentVertexIdx = {
+          {0.0, {customAttachmentVertexIdx}}};
     } else {
-        initSceneProfile.attachmentPoints = AttachmentConfigs::NO_ATTACHMENTS;
+      initSceneProfile.attachmentPoints = AttachmentConfigs::NO_ATTACHMENTS;
     }
+    sim =
+        Simulation::createSystem(initSceneProfile, Vec3d(0, 0, 0), runBackward);
+    // define fake loss
+    /*Vec3d tshirtCenter = (sim->restShapeMinDim + sim->restShapeMaxDim) * 0.5;
+    Vec3d translation = tshirtCenter;
+    sim->taskLossInfo.targetTranslation = tshirtCenter;*/
+  } else if (exampleName == "perturb_tie") {
+    // create simulation instance
+    Simulation::SceneConfiguration initSceneProfile =
+        OptimizationTaskConfigurations::tshirtScene;
+    if (customAttachmentVertexIdx > 0) {
+      initSceneProfile.attachmentPoints = AttachmentConfigs::CUSTOM_ARRAY;
+      initSceneProfile.customAttachmentVertexIdx = {
+          {0.0,
+           {
+               customAttachmentVertexIdx - 4,
+               customAttachmentVertexIdx - 3,
+               customAttachmentVertexIdx - 2,
+               customAttachmentVertexIdx - 1,
+               customAttachmentVertexIdx,
+               customAttachmentVertexIdx + 1,
+               customAttachmentVertexIdx + 3,
+           }}};
+    } else {
+      initSceneProfile.attachmentPoints = AttachmentConfigs::NO_ATTACHMENTS;
+    }
+    initSceneProfile.fabric.name = objFilename;
     sim =
         Simulation::createSystem(initSceneProfile, Vec3d(0, 0, 0), runBackward);
     // define fake loss
@@ -136,6 +166,10 @@ OptimizeHelper *makeOptimizeHelperWithSim(std::string exampleName,
     sim->setPrintVerbose(false);
     helper = BackwardTaskSolver::getOptimizeHelperPointer(
         sim, Demos::DEMO_SPHERE_ROTATE);
+  } else if (exampleName == "perturb_tie") {
+    sim->setPrintVerbose(false);
+    helper = BackwardTaskSolver::getOptimizeHelperPointer(
+        sim, Demos::DEMO_WIND_TSHIRT);
   } else if (exampleName == "wear_sock") {
     sim->setPrintVerbose(false);
     helper = BackwardTaskSolver::getOptimizeHelperPointer(
@@ -180,6 +214,9 @@ OptimizeHelper *makeOptimizeHelper(std::string exampleName) {
   Simulation::SceneConfiguration initSceneProfile;
   if (exampleName == "flatten_tshirt") {
     initSceneProfile = OptimizationTaskConfigurations::rotatingSphereScene;
+  } else if (exampleName == "perturb_tie") {
+    initSceneProfile = OptimizationTaskConfigurations::tshirtScene;
+
   } else if (exampleName == "wear_hat") {
     initSceneProfile = OptimizationTaskConfigurations::hatScene;
   }
@@ -449,7 +486,9 @@ PYBIND11_MODULE(diffcloth_py, m) {
            "compute loss and grads from parameter vector", py::arg("x"));
 
   m.def("makeSim", &makeSim, "initialize a simulation instance",
-        py::arg("exampleName"), py::arg("runBackward") = true, py::arg("customAttachmentVertexIdx") = -1);
+        py::arg("exampleName"), py::arg("objFilename"),
+        py::arg("runBackward") = true,
+        py::arg("customAttachmentVertexIdx") = -1);
 
   m.def("makeOptimizeHelper", &makeOptimizeHelper,
         "initialize an optimize helper", py::arg("exampleName"));
