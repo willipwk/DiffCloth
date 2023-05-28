@@ -18,5 +18,6 @@ dist/
 .vscode/
 __pycache__/
 output/cloth_project/perturb*
-output/perturb*
+output/*.*
 src/assets/meshes/clothesnet/
+render_tmp_*
