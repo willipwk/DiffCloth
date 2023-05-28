@@ -1,13 +1,11 @@
 import argparse
-import contextlib
 import os
-import sys
-from typing import Union
 
 import diffcloth_py as diffcloth
 import numpy as np
 import torch
 from tqdm import tqdm
+from tulip.utils.io_utils import stdout_redirected
 
 import common
 from pySim.pySim import pySim
@@ -17,75 +15,18 @@ parser.add_argument(
     "-mode",
     type=int,
     default=0,
-    help="-1: no change, 0: random perturb, 1: bezier purturb",
+    choices=[0, 1],
+    help="0: fixed attachment index, 1: random index along the middle line",
 )
+parser.add_argument("-task_name", type=str, default="perturb_tie")
+parser.add_argument("-in_fn", type=str, required=True)
+parser.add_argument("-out_fn", type=str, required=True)
+parser.add_argument("-att_idx", type=int, default=-1)
+parser.add_argument("-n_openmp_thread", type=int, default=4)
+parser.add_argument("-seed", type=int, default=8824325)
 parser.add_argument("-r", dest="render", action="store_true", default=False)
 parser.add_argument("-s", dest="save", action="store_true", default=True)
-parser.add_argument("-task_name", type=str, default="perturb_tie")
-parser.add_argument("-n_vertices", type=int, default=600)
-parser.add_argument("-n_openmp_thread", type=int, default=16)
-parser.add_argument("-i", type=int, required=True)
-parser.add_argument("-obj_fn", type=str, required=True)
-parser.add_argument("-att_idx", type=int, required=True)
-parser.add_argument("-output_dir", type=str, default="cloth_project/")
-parser.add_argument("-seed", type=int, default=8824325)
 args = parser.parse_args()
-
-
-class Bezier:
-    def parameterized_two_points(
-        self, t: Union[int, float], P1: np.ndarray, P2: np.ndarray
-    ) -> np.ndarray:
-        """Returns a point between P1 and P2, parametised by t."""
-        Q1 = (1 - t) * P1 + t * P2
-        return Q1
-
-    def bezier_points(self, t: Union[int, float], points: np.ndarray) -> list:
-        """Returns a list of points interpolated by the Bezier process."""
-        newpoints = []
-        for i1 in range(0, len(points) - 1):
-            newpoints += [
-                self.parameterized_two_points(t, points[i1], points[i1 + 1])
-            ]
-        return newpoints
-
-    def bezier_point(
-        self, t: Union[int, float], points: np.ndarray
-    ) -> np.ndarray:
-        """Returns a point interpolated by the Bezier process."""
-        newpoints = points
-        while len(newpoints) > 1:
-            newpoints = self.bezier_points(t, newpoints)
-        return newpoints[0]
-
-    def bezier_curve(
-        self, t_values: Union[tuple, list], points: np.ndarray
-    ) -> np.ndarray:
-        """Returns a point interpolated by the Bezier process."""
-        assert len(t_values) > 0, "t_values must contain at least one value."
-        curve = np.array([[0.0] * len(points[0])])
-        for t in t_values:
-            curve = np.append(curve, [self.bezier_point(t, points)], axis=0)
-        curve = np.delete(curve, 0, 0)
-        return curve
-
-
-@contextlib.contextmanager
-def stdout_redirected(to=os.devnull):
-    fd = sys.stdout.fileno()
-
-    def _redirect_stdout(to):
-        sys.stdout.close()  # + implicit flush()
-        os.dup2(to.fileno(), fd)  # fd writes to 'to' file
-        sys.stdout = os.fdopen(fd, "w")  # Python writes to fd
-
-    with os.fdopen(os.dup(fd), "w") as old_stdout:
-        with open(to, "w") as file:
-            _redirect_stdout(to=file)
-        try:
-            yield
-        finally:
-            _redirect_stdout(to=old_stdout)
 
 
 def get_state(sim: diffcloth.Simulation, to_tensor: bool = False) -> tuple:
@@ -142,129 +83,33 @@ def forward_sim_rand_control(
     return records
 
 
-def get_random_target_within_range(
-    x0: torch.Tensor, att_idx: int, min_dist: float, max_dist: float
-) -> torch.Tensor:
-    reshaped_x0 = x0.reshape(-1, 3)
-    fixed_pos = reshaped_x0[att_idx]
-    dist = (reshaped_x0 - fixed_pos).norm(dim=-1).numpy()
-    mask = np.logical_and(dist > min_dist, dist < max_dist)
-    tgt_idx = np.random.choice(np.where(mask)[0])
-    tgt_pos = reshaped_x0[tgt_idx]
-    tgt_pos[1] += np.random.uniform(0.1, 0.3)
-    return tgt_pos
-
-
-def forward_sim_targeted_control(
-    x_i: torch.Tensor,
-    v_i: torch.Tensor,
-    a_t: torch.Tensor,
-    tgt_pos: torch.Tensor,
-    pysim: pySim,
-    steps: int,
-    action_repeat: int = 4,
-    min_height: float = 1,
-    max_height: float = 3,
-) -> list:
-
-    start_pos = a_t.clone().numpy()
-    tgt_pos = tgt_pos.numpy()
-    mid_high_pos = np.random.uniform(start_pos, tgt_pos)
-    mid_high_pos[1] = np.random.uniform(min_height, max_height)
-    bezier = Bezier()
-    t_points = np.arange(0, 1, 1.0 / steps)
-    points = np.array([start_pos, mid_high_pos, tgt_pos])
-    curve_points = bezier.bezier_curve(t_points, points)
-
-    records = []
-    for points in tqdm(curve_points):
-        records.append((x_i, v_i))
-        a_t = common.toTorchTensor(points, False, False).clone()
-        for _ in range(action_repeat):
-            x_i, v_i = pysim(x_i, v_i, a_t)
-    records.append((x_i, v_i))
-    return records
-
-    return records
-
-
-def get_center_pos(
-    sim: diffcloth.Simulation, corner_idx: list = [315, 314, 284, 285]
-) -> torch.Tensor:
-    v_pos, _, _ = get_state(sim, to_tensor=True)
-    v_pos = v_pos.reshape(-1, 3)
-    center_pos = v_pos[torch.LongTensor(corner_idx)].mean(0)
-    return center_pos
-
-
-def export_mesh(
-    sim: diffcloth.Simulation,
-    out_fn: str,
-    tmp_fn: str = "untextured.obj",
-    cano_fn: str = "textured_flat_cloth.obj",
-    dir_prefix: str = "output/cloth_project",
-    export_step: int = None,
-    renormalize: bool = False,
-) -> None:
-
-    if export_step is None:
-        export_step = (sim.sceneConfig.stepNum - 1,)
-    # export to untextured object
-    sim.exportCurrentMeshPos(
-        export_step,
-        f"{dir_prefix}/{tmp_fn}".replace("output/", "").replace(".obj", ""),
-    )
-
-    if renormalize:
-        center_pos = get_center_pos(sim)
-        center_pos[2] = 0.0  # in-plane normalization
-    if os.path.isfile(f"{dir_prefix}/{tmp_fn}"):
-        obj_lines = []
-        with open(f"{dir_prefix}/{cano_fn}", "r") as fp:
-            found_mtl = False
-            cano_vpos_idx = []
-            for i, line in enumerate(fp.readlines()):
-                obj_lines.append(line)
-                if line.startswith("v "):
-                    cano_vpos_idx.append(i)
-                if ".mtl" in line:
-                    found_mtl = True
-        if found_mtl:
-            with open(f"{dir_prefix}/{tmp_fn}", "r") as fp:
-                new_vpos_lines = [
-                    line for line in fp.readlines() if line.startswith("v ")
-                ]
-                assert len(new_vpos_lines) == len(
-                    cano_vpos_idx
-                ), "the numbers of vertices mismatch"
-                for i, line_idx in enumerate(cano_vpos_idx):
-                    if renormalize:
-                        tmp_pos = new_vpos_lines[i].strip().split()[-3:]
-                        pos = [
-                            float(n) - center_pos[i]
-                            for i, n in enumerate(tmp_pos)
-                        ]
-                        new_vpos_lines[i] = f"v {pos[0]} {pos[1]} {pos[2]}\n"
-                    obj_lines[line_idx] = new_vpos_lines[i]
-            with open(f"{dir_prefix}/{out_fn}", "w") as fp:
-                fp.write("".join(obj_lines))
-            print(f"==> Exported textured obj to {dir_prefix}/{out_fn}")
-            os.system(f"rm -f {dir_prefix}/{tmp_fn}")
-            os.system(f"rm -f {dir_prefix}/*.txt")
+def parse_v_middle(start_idx, end_idx, distance):
+    v_middle = [start_idx, end_idx]
+    while True:
+        if v_middle[-2] + distance < v_middle[-1]:
+            v_middle.insert(-1, v_middle[-2] + distance)
         else:
-            print("*********[WARNING]: mtl file not found...*************")
+            break
+    return v_middle
+
+
+def perturb(args):
+    # Parsing attachment index
+    v_middle = parse_v_middle(start_idx=2, end_idx=364, distance=3)
+    if args.mode == 0:
+        assert args.att_idx in v_middle, "Invalid control vertex index."
+        att_idx = args.att_idx
     else:
-        print("************[ERROR]: in exporting!!!*************")
+        att_idx = np.random.choice(v_middle)
+    print(f"==> Selecting control point to vertex {att_idx}")
 
-
-def perturb(args, out_fn):
-    # Initialize the scene with specified fixed point or no fixed point
+    # Initialize the scene
     helper = diffcloth.makeOptimizeHelper(args.task_name)
     sim = diffcloth.makeSim(
         exampleName=args.task_name,
-        objFilename=args.obj_fn,
+        objFilename=args.in_fn,
         runBackward=False,
-        customAttachmentVertexIdx=args.att_idx,
+        customAttachmentVertexIdx=att_idx,
     )
     sim.forwardConvergenceThreshold = 1e-8
     pysim = pySim(sim, helper, True)
@@ -273,50 +118,38 @@ def perturb(args, out_fn):
     sim.resetSystem()
     x0_t, v0_t, a0_t = get_state(sim, to_tensor=True)
 
-    # Cloth control
-    sim.resetSystem()
-    if args.mode == -1:
-        _ = forward_sim_no_control(x0_t, v0_t, a0_t, pysim, 200)
-    else:
-        _ = forward_sim_no_control(x0_t, v0_t, a0_t, pysim, 100)
-        if args.mode == 0:
-            x_t, v_t, a_t = get_state(sim, to_tensor=True)
-            _ = forward_sim_rand_control(x_t, v_t, a_t, pysim, 20)
-        else:
-            tgt_pos = get_random_target_within_range(x0_t, args.att_idx, 1, 3.5)
-            _ = forward_sim_targeted_control(
-                x0_t, v0_t, a0_t, tgt_pos, pysim, 100
-            )
-        # stabilizing the scene
-        x_t, v_t, a_t = get_state(sim, to_tensor=True)
-        _ = forward_sim_no_control(x_t, v_t, a_t, pysim, 5)
+    # Let tie fall down first
+    # _ = forward_sim_no_control(x0_t, v0_t, a0_t, pysim, 100)
+    # Start perturb the tie
+    x_t, v_t, a_t = get_state(sim, to_tensor=True)
+    _ = forward_sim_rand_control(x_t, v_t, a_t, pysim, 20)
+    # Let the scene stabalize
+    # x_t, v_t, a_t = get_state(sim, to_tensor=True)
+    # _ = forward_sim_no_control(x_t, v_t, a_t, pysim, 5)
 
     # Rendering the simulationg
     if args.render:
         diffcloth.render(sim, renderPosPairs=True, autoExit=True)
+
     # Export final configuration into wavefront file
-    export_step = 100 + 20 + 5
-    sim.exportCurrentMeshPos(export_step, obj_fn.replace(".obj", ""))
+    export_step = 20
+    sim.exportCurrentMeshPos(export_step, args.out_fn.replace(".obj", ""))
     del sim, pysim
 
 
-# TODO 1: adding randomize texture ?
-# TODO 2: is stabilizing the scene necessary ?
 if __name__ == "__main__":
 
     diffcloth.enableOpenMP(n_threads=args.n_openmp_thread)
 
-    args.seed += args.i
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    step_num = args.obj_fn.split("/")[-2]
-    obj_fn = f"perturbed_tie_{step_num}_{args.i}.obj"
-    if os.path.isfile(f"output/{obj_fn}"):
-        print(f"{obj_fn} exists. Skip...")
+    assert args.out_fn.endswith(".obj"), "Please provide a valid filename."
+    if False:  # os.path.isfile(f"output/{args.out_fn}"):
+        print(f"{args.out_fn} exists. Skip...")
     else:
         try:
-            # with stdout_redirected():
-            perturb(args, obj_fn)
+            with stdout_redirected():
+                perturb(args)
         except:
             print("Error encountered. Retry....")

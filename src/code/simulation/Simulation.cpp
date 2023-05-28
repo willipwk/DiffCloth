@@ -6,7 +6,7 @@
 
 // #define DEBUG_EXPLOSION
 // #define  DEBUG_SELFCOLLISION
-volatile bool Simulation::gravityEnabled = true;
+volatile bool Simulation::gravityEnabled = false; //true;
 volatile bool Simulation::bendingEnabled = true;
 volatile bool Simulation::staticEnabled = false;
 volatile bool Simulation::contactEnabled = true;
@@ -1939,7 +1939,7 @@ void Simulation::initScene() {
   case PLANE_AND_SPHERE: {
     Vec3d centerLowPoint = 0.5 * (restShapeMinDim + restShapeMaxDim);
     centerLowPoint[1] = restShapeMinDim[1];
-    plane1.center = Vec3d(0, -0.43, 0);
+    plane1.center = Vec3d(0, -1, 0);
     plane1.mu = 1.5;
     // plane1.center = plane1.centerInit =
     //     centerLowPoint - Vec3d(0, sphere2.radius * 2 + 0.1, 0);

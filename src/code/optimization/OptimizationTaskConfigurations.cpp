@@ -257,7 +257,7 @@ Simulation::SceneConfiguration OptimizationTaskConfigurations::windScene = {
 
 Simulation::SceneConfiguration OptimizationTaskConfigurations::tshirtScene = {
     .fabric = tshirt1000,
-    .orientation = Orientation::DOWN, // BACK,
+    .orientation = Orientation::FRONT,
     //.attachmentPoints = AttachmentConfigs::LEFT_RIGHT_CORNERS_2,
     .attachmentPoints = AttachmentConfigs::CUSTOM_ARRAY,
     .customAttachmentVertexIdx = {{0.0, {135}}},
