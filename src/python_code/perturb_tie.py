@@ -145,7 +145,7 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
 
     assert args.out_fn.endswith(".obj"), "Please provide a valid filename."
-    if False:  # os.path.isfile(f"output/{args.out_fn}"):
+    if os.path.isfile(f"output/{args.out_fn}"):
         print(f"{args.out_fn} exists. Skip...")
     else:
         try:

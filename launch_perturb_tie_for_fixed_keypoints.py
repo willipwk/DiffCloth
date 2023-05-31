@@ -21,6 +21,7 @@ def perturb_thread(obj_fn, i, seed, n_openmp_thread):
     cmd += f" -n_openmp_thread {n_openmp_thread}"
     cmd += f" -seed {seed + i}"
 
+    # print(cmd)
     os.system(cmd)
 
     if not os.path.isfile(f"output/{out_fn}"):
@@ -32,7 +33,7 @@ def perturb_thread(obj_fn, i, seed, n_openmp_thread):
 if __name__ == "__main__":
 
     obj_files = glob.glob(
-        "src/assets/meshes/remeshed/tie_data/episode6/*/*.obj"
+        "src/assets/meshes/remeshed/tie_data/*/*/tie_final.obj"
     )
     # obj_files += glob.glob(
     #   "src/assets/meshes/remeshed/tie_data/episode5/*/*.obj"
@@ -40,13 +41,14 @@ if __name__ == "__main__":
     obj_files = sorted(obj_files)
 
     n_output = 500
-    cpu_per_proc = 1
+    cpu_per_proc = 2
     total_cpu = os.cpu_count()
     n_thread = int(total_cpu / cpu_per_proc)
+    executed_files = []
     for start_idx in range(0, len(obj_files), n_thread):
         for i in range(n_output):
             threads = []
-            for thread_idx in range(n_thread):
+            for thread_idx in range(min(len(obj_files) - start_idx, n_thread)):
                 obj_fn = obj_files[start_idx + thread_idx]
                 seed = (start_idx + thread_idx) * 123456
                 threads.append(
@@ -60,8 +62,14 @@ if __name__ == "__main__":
                         ),
                     )
                 )
+                perturb_fn = "_".join(obj_fn.split("/")[-3:]).replace(
+                    ".obj", f"_perturbed_{i}.obj"
+                )
+                executed_files.append(perturb_fn)
             for t in threads:
                 t.start()
             for t in threads:
                 t.join()
+            with open("executed_files.txt", "w") as fp:
+                fp.write("\n".join(executed_files) + "\n")
             print("=" * 50, start_idx, i)
