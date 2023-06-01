@@ -20,6 +20,8 @@ from tulip.utils.pblt_utils import (
 
 
 def single2double_sided(in_obj_fn, out_obj_fn):
+    if os.path.isfile(out_obj_fn):
+        os.system(f"rm {out_obj_fn}")
     w_fp = open(out_obj_fn, "w")
     faces = []
     with open(in_obj_fn) as r_fp:
@@ -50,27 +52,16 @@ def prepare_for_multiproc(n_thread, urdf_fn):
     return urdf_files
 
 
-def render_thread(obj_fn, i, urdf_fn, mode="GUI"):
-    # generate double-sided tie obj from perturbed tie for urdf
-    perturbed_obj_fn = "output/" + "_".join(obj_fn.split("/")[-3:]).replace(
-        ".obj", f"_perturbed_{i}.obj"
-    )
+def render_thread(perturbed_obj_fn, urdf_fn, mode="GUI"):
 
-    out_fn = perturbed_obj_fn.replace(".obj", "")
-    if os.path.isfile(f"{out_fn}.ply"):
-        return
-
-    start_time = time.time()
-    while not os.path.isfile(perturbed_obj_fn):
-        with open("executed_files.txt", "r") as fp:
-            executed_files = [l.strip() for l in fp.readlines()]
-            if perturbed_obj_fn.replace("output/", "") in executed_files:
-                with open("missing_files.txt", "a") as fp:
-                    fp.write(f"{perturbed_obj_fn}\n")
-                return
-            else:
-                print(f"Waiting for {perturbed_obj_fn} to be generated...")
-                time.sleep(3)
+    rnd = np.random.uniform()
+    if rnd < 0.8:
+        data_mode = "train"
+    elif rnd < 0.9:
+        data_mode = "eval"
+    else:
+        data_mode = "test"
+    out_fn = f"../pointnet_tasks/tie_pcd2kp/data/{data_mode}/{perturbed_obj_fn.replace('.obj', '').replace('output/', '')}"
 
     urdf_dir = "/".join(urdf_fn.split("/")[:-1])
     out_obj_fn = f"{urdf_dir}/tie.obj"
@@ -80,7 +71,7 @@ def render_thread(obj_fn, i, urdf_fn, mode="GUI"):
     sim_cid = init_sim(mode=mode)
     tie_id = p.loadURDF(
         urdf_fn,
-        basePosition=[0, 0, 0.05],
+        basePosition=[0, 0, 0.0],
         baseOrientation=p.getQuaternionFromEuler([np.pi / 2, 0, -np.pi / 2]),
         useFixedBase=True,
         physicsClientId=sim_cid,
@@ -126,6 +117,7 @@ def render_thread(obj_fn, i, urdf_fn, mode="GUI"):
         return_pcd=True,
         mask=(seg == seg.max()),
     )
+    # vis_points(xyz, sim_cid, color=[0, 1, 0])
 
     # save pointcloud
     pcd = o3d.geometry.PointCloud()
@@ -140,10 +132,20 @@ def render_thread(obj_fn, i, urdf_fn, mode="GUI"):
     scale = [0.15, 0.15, 0.15]  # hard-coded for now
     kp_indices = [8, 95, 182, 269, 356]
     v_pos = get_vertices_pos(tie_id, sim_cid, scale=scale)
-    # vis_points(v_pos, sim_cid, color=[0, 1,0])
+    # vis_points(v_pos, sim_cid, color=[0, 1, 0])
     with open(f"{out_fn}_kp_pos.npy", "wb") as fp:
         keypoints = [v_pos[idx] for idx in kp_indices]
         np.save(fp, np.array(keypoints))
+    for i, pos in enumerate(keypoints):
+        print(
+            i,
+            np.linalg.norm(xyz - pos, axis=-1).min(),
+            np.linalg.norm(np.array(pcd.points) - pos, axis=-1).min(),
+            np.linalg.norm(np.array(dsmp_pcd.points) - pos, axis=-1).min(),
+        )
+    # kp = o3d.geometry.PointCloud()
+    # kp.points = o3d.utility.Vector3dVector(np.array(v_pos))
+    # o3d.visualization.draw_geometries([pcd, kp])
 
     # check file
     if not (
@@ -155,39 +157,6 @@ def render_thread(obj_fn, i, urdf_fn, mode="GUI"):
 
 
 if __name__ == "__main__":
-
-    obj_files = glob.glob(
-        "src/assets/meshes/remeshed/tie_data/*/*/tie_final.obj"
-    )
-    obj_files = sorted(obj_files)
-
-    n_output = 500
-    cpu_per_proc = 2
-    total_cpu = os.cpu_count()
-    n_thread = int(total_cpu / cpu_per_proc)
-    urdf_files = prepare_for_multiproc(n_thread, "tie/tie.urdf")
-    for start_idx in range(0, len(obj_files), n_thread):
-        for i in range(n_output):
-            # threads = []
-            for thread_idx in range(min(len(obj_files) - start_idx, n_thread)):
-                obj_fn = obj_files[start_idx + thread_idx]
-                try:
-                    render_thread(obj_fn, i, urdf_files[thread_idx], "DIRECT")
-                except:
-                    perturbed_obj_fn = "output/" + "_".join(
-                        obj_fn.split("/")[-3:]
-                    ).replace(".obj", f"_perturbed_{i}.obj")
-                    with open("missing_files.txt", "a") as fp:
-                        fp.write(f"{perturbed_obj_fn}\n")
-
-                # threads.append(
-                #    Thread(
-                #        target=render_thread,
-                #        args=(obj_fn, i, urdf_files[thread_idx], "DIRECT"),
-                #    )
-                # )
-            # for t in threads:
-            #    t.start()
-            # for t in threads:
-            #    t.join()
-            print("=" * 50, start_idx, i)
+    perturbed_obj_files = glob.glob("output/episode6_*.obj")
+    for fn in tqdm(perturbed_obj_files):
+        render_thread(fn, "tie/tie.urdf", "DIRECT")
