@@ -8,6 +8,7 @@ import shutil
 import xml.dom.minidom
 import numpy as np
 import scipy
+import pygeodesic.geodesic as geodesic
 import open3d as o3d
 import pybullet as p
 from tqdm import tqdm
@@ -20,6 +21,29 @@ from tulip.utils.pblt_utils import (
     render,
     vis_points,
 )
+
+
+def read_obj(obj_file_path: str):
+    """
+    read obj file to generate vertices and faces
+    """
+    with open(obj_file_path) as file:
+        points = []
+        faces = []
+        while True:
+            line = file.readline()
+            if not line:
+                break
+            strs = line.split(" ")
+            if strs[0] == "v":
+                points.append([float(strs[1]), float(strs[2]), float(strs[3])])
+            if strs[0] == "vt":
+                continue
+            if strs[0] == "f":
+                faces.append([int(strs[1]) - 1, int(strs[2]) - 1, int(strs[3]) - 1])
+    points = np.array(points)
+    faces = np.array(faces)
+    return points, faces
 
 
 def single2double_sided(in_obj_fn, out_obj_fn):
@@ -156,6 +180,22 @@ def render_thread(perturbed_obj_fn: str, urdf_fn: str, render_obj_fn: str, mode=
     scale = [1.0, 1.0, 1.0]
     kp_indices = [8, 95, 182, 269, 356]
     v_pos = get_vertices_pos(tie_id, sim_cid, scale=scale)
+    # compute geodesic distance
+    pcd2vertex_dist_matrix = scipy.spatial.distance_matrix(np.asarray(dsmp_pcd), v_pos, p=2, threshold=5000000)
+    pcd2vertex_dist = np.min(pcd2vertex_dist_matrix, axis=1)
+    pcd_nearest_vertex = np.argmin(pcd2vertex_dist_matrix, axis=1)
+    points, faces = geodesic.read_mesh_from_file(perturbed_obj_fn)
+    geoalg = geodesic.PyGeodesicAlgorithmExact(points, faces)
+    source_indices = np.array(kp_indices) 
+    target_indices = None
+    geodesic_list = []
+    for kp in kp_indices: 
+        source_indices = np.array([kp])
+        distances, best_source = geoalg.geodesicDistances(source_indices, target_indices)
+        geodesic_list.append(distances)
+    vertex_geodesic_dist = np.vstack(geodesic_list)
+    pcd2kp_geodesic_dist = pcd2vertex_dist + vertex_geodesic_dist[pcd_nearest_vertex]
+    np.save(f"{out_fn}_geodesic_dist.npy", pcd2kp_geodesic_dist)
     # vis_points(v_pos, sim_cid, color=[0, 1, 0])
     keypoints = [v_pos[idx] for idx in kp_indices]
     np.save(f"{out_fn}_kp_pos.npy", np.array(keypoints))
@@ -186,5 +226,11 @@ def render_thread(perturbed_obj_fn: str, urdf_fn: str, render_obj_fn: str, mode=
 if __name__ == "__main__":
     # perturbed_obj_files = glob.glob("output/025/episode2/results361/test2_*.obj")
     # for fn in tqdm(perturbed_obj_files):
-    render_thread(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
+    # render_thread(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
     # prepare_urdf("./tie/tie1.urdf", "./tie/tie1.obj")
+    points, faces = read_obj("tie.obj")
+    geoalg = geodesic.PyGeodesicAlgorithmExact(points, faces)
+    source_indices = np.array([356])
+    target_indices = None
+    distances, best_source = geoalg.geodesicDistances(source_indices, target_indices)
+    print(distances)
