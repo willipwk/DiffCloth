@@ -62,12 +62,12 @@ Simulation::FabricConfiguration
 Simulation::FabricConfiguration OptimizationTaskConfigurations::tshirt1000 = {
     .clothDimX = 6,
     .clothDimY = 6,
-    .k_stiff_stretching = 3000, // 550,
-    .k_stiff_bending = 7.5,     // 0.01, // TODO: change back
+    .k_stiff_stretching = 5000, // 550,
+    .k_stiff_bending = 1.5,     // 0.01, // TODO: change back
     .gridNumX = 40,             // 25,
     .gridNumY = 80,             // 50,
     .density = 1.5,             // 0.124,
-    .keepOriginalScalePoint = false,
+    .keepOriginalScalePoint = true,
     .isModel = true,
     .custominitPos = false,
     .fabricIdx = FabricEnumArray::TSHIRT1000,

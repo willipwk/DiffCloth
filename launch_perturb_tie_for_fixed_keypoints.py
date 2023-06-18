@@ -5,15 +5,19 @@ import time
 from threading import Thread
 
 
-def perturb_thread(obj_fn, i, seed, n_openmp_thread):
+def perturb_thread(obj_fn: str, i: int, seed: int, n_openmp_thread: int):
 
     in_fn = obj_fn[obj_fn.find("remeshed") :]
 
-    out_fn = "_".join(obj_fn.split("/")[-3:]).replace(
+    # out_fn = "_".join(obj_fn.split("/")[-4:]).replace(
+    #     ".obj", f"_perturbed_{i}.obj"
+    # )
+    out_fn = in_fn[9:].replace(
         ".obj", f"_perturbed_{i}.obj"
     )
     cmd = "python3 src/python_code/perturb_tie.py"
     cmd += " -s"
+    # cmd += " -r"
     cmd += " -mode 1"
     cmd += " -task_name perturb_tie"
     cmd += f" -in_fn {in_fn}"
@@ -33,7 +37,7 @@ def perturb_thread(obj_fn, i, seed, n_openmp_thread):
 if __name__ == "__main__":
 
     obj_files = glob.glob(
-        "src/assets/meshes/remeshed/tie_data/*/*/tie_final.obj"
+        "src/assets/meshes/remeshed/025/episode1/results185/test1.obj"
     )
     # obj_files += glob.glob(
     #   "src/assets/meshes/remeshed/tie_data/episode5/*/*.obj"
@@ -45,31 +49,43 @@ if __name__ == "__main__":
     total_cpu = os.cpu_count()
     n_thread = int(total_cpu / cpu_per_proc)
     executed_files = []
-    for start_idx in range(0, len(obj_files), n_thread):
-        for i in range(n_output):
+    for start_idx in range(len(obj_files)):
+        i = 0
+        obj_start_idx = 0
+        obj_fn = obj_files[start_idx]
+        out_folder = "output" + obj_fn[obj_fn.find("remeshed") + len("remeshed"):obj_fn.rfind("/") + 1]
+        while i < n_output:
             threads = []
-            for thread_idx in range(min(len(obj_files) - start_idx, n_thread)):
-                obj_fn = obj_files[start_idx + thread_idx]
-                seed = (start_idx + thread_idx) * 123456
+            for thread_idx in range(min(n_output - i, n_thread)):
+                seed = (start_idx + obj_start_idx + thread_idx) * 123456
+                print("begin:", obj_start_idx + thread_idx)
                 threads.append(
                     Thread(
                         target=perturb_thread,
                         args=(
                             obj_fn,
-                            i,
+                            obj_start_idx + thread_idx,
                             seed,
                             cpu_per_proc,
                         ),
                     )
                 )
-                perturb_fn = "_".join(obj_fn.split("/")[-3:]).replace(
-                    ".obj", f"_perturbed_{i}.obj"
-                )
-                executed_files.append(perturb_fn)
+                # perturb_fn = "_".join(obj_fn.split("/")[-3:]).replace(
+                #     ".obj", f"_perturbed_{i}.obj"
+                # )
+                # perturb_fn = obj_fn[obj_fn.find("remeshed") + len("remeshed"):].replace(
+                #     ".obj", f"_perturbed_{i}.obj"
+                # )
+                # executed_files.append(perturb_fn)
             for t in threads:
                 t.start()
             for t in threads:
                 t.join()
-            with open("executed_files.txt", "w") as fp:
-                fp.write("\n".join(executed_files) + "\n")
+            obj_start_idx += min(n_output - i, n_thread)
+            perturbed_obj = os.listdir(out_folder)
+            i = len(perturbed_obj)
             print("=" * 50, start_idx, i)
+
+        perturbed_obj = os.listdir(out_folder)
+        with open("executed_files.txt", "w") as fp:
+            fp.write("\n".join(perturbed_obj) + "\n")

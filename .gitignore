@@ -21,3 +21,7 @@ output/cloth_project/perturb*
 output/*.*
 src/assets/meshes/clothesnet/
 render_tmp_*
+output/
+tie/tie[0-9]*.obj
+tie/tie[0-9]*.urdf
+src/assets/meshes/remeshed/025

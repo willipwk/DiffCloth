@@ -75,9 +75,9 @@ def forward_sim_rand_control(
     da_t = da_t.reshape(-1, 1).repeat(n_repeat).reshape(-1)
     records = []
     for step in tqdm(range(steps)):
-        records.append((x_i, v_i))
         a_t += da_t
         for _ in range(action_repeat):
+            records.append((x_i, v_i))
             x_i, v_i = pysim(x_i, v_i, a_t)
     records.append((x_i, v_i))
     return records
@@ -122,18 +122,27 @@ def perturb(args):
     # _ = forward_sim_no_control(x0_t, v0_t, a0_t, pysim, 100)
     # Start perturb the tie
     x_t, v_t, a_t = get_state(sim, to_tensor=True)
-    _ = forward_sim_rand_control(x_t, v_t, a_t, pysim, 20)
-    # Let the scene stabalize
-    # x_t, v_t, a_t = get_state(sim, to_tensor=True)
-    # _ = forward_sim_no_control(x_t, v_t, a_t, pysim, 5)
-
+    export_step = 20
+    change_thresh = 10
+    
+    xvPairs = forward_sim_rand_control(x_t, v_t, a_t, pysim, 20)
+    x_init = xvPairs[0][0]
+    x_final = xvPairs[export_step][0]
+    change = torch.sum((x_final - x_init) ** 2)
+    out_folder = "output/" + args.out_fn[:args.out_fn.rfind("/")]
+    if not os.path.exists(out_folder):
+        os.makedirs(out_folder)
     # Rendering the simulationg
     if args.render:
         diffcloth.render(sim, renderPosPairs=True, autoExit=True)
 
-    # Export final configuration into wavefront file
-    export_step = 20
-    sim.exportCurrentMeshPos(export_step, args.out_fn.replace(".obj", ""))
+    if args.save and change < change_thresh:
+        # Export final configuration into wavefront file
+        sim.exportCurrentMeshPos(export_step, args.out_fn.replace(".obj", ""))
+    # Let the scene stabalize
+    # x_t, v_t, a_t = get_state(sim, to_tensor=True)
+    # _ = forward_sim_no_control(x_t, v_t, a_t, pysim, 5)
+
     del sim, pysim
 
 
