@@ -37,7 +37,7 @@ def perturb_thread(obj_fn: str, i: int, seed: int, n_openmp_thread: int):
 if __name__ == "__main__":
 
     obj_files = glob.glob(
-        "src/assets/meshes/remeshed/025/episode1/results185/test1.obj"
+        "src/assets/meshes/remeshed/025/episode2/results361/test2.obj"
     )
     # obj_files += glob.glob(
     #   "src/assets/meshes/remeshed/tie_data/episode5/*/*.obj"

@@ -190,7 +190,7 @@ def render_thread(perturbed_obj_fn: str, urdf_fn: str, render_obj_fn: str, mode=
         source_indices = np.array([kp])
         distances, best_source = geoalg.geodesicDistances(source_indices, target_indices)
         geodesic_list.append(distances)
-    vertex_geodesic_dist = np.vstack(geodesic_list)
+    vertex_geodesic_dist = np.stack(geodesic_list, axis=-1)
     np.save(f"{out_fn}_geodesic_dist.npy", vertex_geodesic_dist)
     # vis_points(v_pos, sim_cid, color=[0, 1, 0])
     np.save(f"{out_fn}_v_pos.npy", v_pos)
