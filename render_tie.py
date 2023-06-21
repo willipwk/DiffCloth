@@ -12,7 +12,7 @@ def render_thread(perturb_fn: str, urdf_fn: str, obj_fn: str, render_mode: str):
 
 if __name__ == "__main__":
     render_mode = "DIRECT"
-    perturbed_obj_files = glob.glob("output/025/episode2/results361/test2_*.obj")
+    perturbed_obj_files = glob.glob("output/025/episode[3-6]/*/tie_final_*.obj")
     cpu_per_proc = 2
     total_cpu = os.cpu_count()
     n_thread = int(total_cpu / cpu_per_proc)

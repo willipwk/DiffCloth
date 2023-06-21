@@ -8,6 +8,7 @@ import shutil
 import xml.dom.minidom
 import numpy as np
 import scipy
+from scipy.spatial.transform import Rotation
 import pygeodesic.geodesic as geodesic
 import open3d as o3d
 import pybullet as p
@@ -122,14 +123,18 @@ def render_thread(perturbed_obj_fn: str, urdf_fn: str, render_obj_fn: str, mode=
         physicsClientId=sim_cid,
     )
 
-    # camera extrinsic related
-    camera_pos = [-0.58451435, 0.0, 0.61609813]
-    camera_quat = [
-        -0.6733081448310533,
-        0.6659691939501913,
-        -0.22584407782434218,
-        0.22833227394560413,
-    ]
+    # # camera extrinsic related kinect
+    # camera_pos = [-0.58451435, 0.0, 0.61609813]
+    # camera_quat = [
+    #     -0.6733081448310533,
+    #     0.6659691939501913,
+    #     -0.22584407782434218,
+    #     0.22833227394560413,
+    # ]
+    # camera extrinsic related realsense
+    camera_pos = [0.0, 0.0, 0.597076]
+    r = Rotation.from_euler(seq='xyz', angles=[np.pi, 0, -np.pi / 2])
+    camera_quat = Rotation.as_quat(r)
     view_matrix = build_view_matrix_pblt(
         camera_pos, camera_quat, sim_cid, vis=True
     )
@@ -163,7 +168,7 @@ def render_thread(perturbed_obj_fn: str, urdf_fn: str, render_obj_fn: str, mode=
         mask=(seg == seg.max()),
     )
     np.random.shuffle(xyz)
-    # vis_points(xyz, sim_cid, color=[0, 1, 0])
+    vis_points(xyz, sim_cid, color=[0, 1, 0])
 
     # save pointcloud
     pcd = o3d.geometry.PointCloud()
@@ -203,10 +208,7 @@ def render_thread(perturbed_obj_fn: str, urdf_fn: str, render_obj_fn: str, mode=
     #         np.linalg.norm(np.array(pcd.points) - pos, axis=-1).min(),
     #         np.linalg.norm(np.array(dsmp_pcd.points) - pos, axis=-1).min(),
     #     )
-    # kp = o3d.geometry.PointCloud()
-    # kp.points = o3d.utility.Vector3dVector(np.array(keypoints))
-    # kp.paint_uniform_color([1, 0, 0])
-    # o3d.visualization.draw_geometries([dsmp_pcd] + [kp])
+    o3d.visualization.draw_geometries([dsmp_pcd])
     # time.sleep(100000)
 
     # check file

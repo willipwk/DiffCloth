@@ -11,7 +11,7 @@ namespace py = pybind11;
 
 Simulation *makeSim(std::string exampleName, std::string objFilename,
                     bool runBackward = true,
-                    int customAttachmentVertexIdx = -1) {
+                    int customAttachmentVertexIdx = -2) {
   Simulation::forwardConvergenceThreshold = 1e-5;
   Simulation *sim = nullptr;
   if (exampleName == "wear_hat") {
@@ -59,6 +59,17 @@ Simulation *makeSim(std::string exampleName, std::string objFilename,
                customAttachmentVertexIdx,
                customAttachmentVertexIdx + 1,
                customAttachmentVertexIdx + 3,
+           }}};
+    } else if (customAttachmentVertexIdx == -1) {
+      initSceneProfile.attachmentPoints = AttachmentConfigs::CUSTOM_ARRAY;
+      initSceneProfile.customAttachmentVertexIdx = {
+          {0.0,
+           {
+              8, 4, 5, 6, 7, 9, 11,
+              95, 91, 92, 93, 94, 96, 98,
+              182, 178, 179, 180, 181, 183, 185,
+              269, 265, 266, 267, 268, 270, 272,
+              356, 352, 353, 354, 355, 357, 359,
            }}};
     } else {
       initSceneProfile.attachmentPoints = AttachmentConfigs::NO_ATTACHMENTS;

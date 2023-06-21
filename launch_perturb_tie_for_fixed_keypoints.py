@@ -18,7 +18,7 @@ def perturb_thread(obj_fn: str, i: int, seed: int, n_openmp_thread: int):
     cmd = "python3 src/python_code/perturb_tie.py"
     cmd += " -s"
     # cmd += " -r"
-    cmd += " -mode 1"
+    cmd += " -mode 2"
     cmd += " -task_name perturb_tie"
     cmd += f" -in_fn {in_fn}"
     cmd += f" -out_fn {out_fn}"
@@ -37,7 +37,7 @@ def perturb_thread(obj_fn: str, i: int, seed: int, n_openmp_thread: int):
 if __name__ == "__main__":
 
     obj_files = glob.glob(
-        "src/assets/meshes/remeshed/025/episode2/results361/test2.obj"
+        "src/assets/meshes/remeshed/025/episode[3-6]/*/tie_final.obj"
     )
     # obj_files += glob.glob(
     #   "src/assets/meshes/remeshed/tie_data/episode5/*/*.obj"
@@ -82,7 +82,9 @@ if __name__ == "__main__":
             for t in threads:
                 t.join()
             obj_start_idx += min(n_output - i, n_thread)
-            perturbed_obj = os.listdir(out_folder)
+            perturbed_obj = glob.glob(
+                                "output/025/episode[3-6]/*/tie_final_*.obj"
+                            )
             i = len(perturbed_obj)
             print("=" * 50, start_idx, i)
 
