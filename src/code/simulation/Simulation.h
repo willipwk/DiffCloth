@@ -25,6 +25,7 @@
 #include <memory>
 #include <set>
 #include <vector>
+#include <ipc/ipc.hpp>
 
 class Simulation {
 
@@ -63,38 +64,45 @@ public:
                     std::vector<std::vector<SelfCollisionInformation>>>
       completeCollisionInfo;
   struct ForwardInformation {
-    VecXd x;
-    VecXd v;
-    VecXd x_prev;
-    VecXd v_prev;
-    VecXd f;
-    VecXd r;
-    VecXd At_p_weightless_pertype[Constraint::CONSTRAINT_NUM];
-    VecXd s_n;
-    VecXd x_prim;
-    VecXd v_prim;
-    VecXd vpre_prim;
-    VecXd f_prim;
-    VecXd x_fixedpoints;
-    Vec5d windParams;
-    completeCollisionInfo collisionInfos;
-    TimerContent timer;
-    std::vector<TimerEntry> accumTimer;
-    std::vector<Spline> splines;
-    int sysMatId = 0;
-    long long totalRuntime;
-    double simDurartionFraction;
-    double avgDeformation;
-    double maxDeformation;
-    double windFactor;
-    double t;
-    bool converged;
-    int convergeIter;
-    int totalConverged;
-    int cumulateIter;
-    int stepIdx;
-    double loss; // last frame, if applicable
-  };
+        VecXd x;
+        VecXd v;
+        VecXd x_prev;
+        VecXd v_prev;
+        VecXd x_pd;
+        VecXd v_pd;
+        VecXd f;
+        VecXd r;
+        VecXd At_p_weightless_pertype[Constraint::CONSTRAINT_NUM];
+        VecXd s_n;
+        VecXd x_prim;
+        VecXd v_prim;
+        VecXd vpre_prim;
+        VecXd f_prim;
+        VecXd barrier_filter;
+        VecXd x_fixedpoints;
+        Vec5d windParams;
+        Eigen::MatrixXd Hessian;
+        completeCollisionInfo collisionInfos;
+        TimerContent timer;
+        std::vector<TimerEntry> accumTimer;
+        std::vector<Spline> splines;
+        int sysMatId = 0;
+        long long totalRuntime;
+        double decrease_rate;
+        double simDurartionFraction;
+        double avgDeformation;
+        double maxDeformation;
+        double windFactor;
+        double l2_norm_factor;
+        double t;
+        bool converged;
+        int convergeIter;
+        int totalConverged;
+        int cumulateIter;
+        int stepIdx;
+        double loss; // last frame, if applicable
+        std::vector<int> collision_vertex;
+    };
 
   struct FabricConfiguration {
     double clothDimX;
@@ -130,32 +138,35 @@ public:
   };
 
   struct BackwardInformation {
-    VecXd dL_dx;
-    VecXd dL_dv;
-    VecXd dL_dconstantForceField;
-    Vec3d dL_dfext;
-    Vec5d dL_dwind; // vec3(force),period,phase
-    VecXd dL_dwindtimestep;
-    double dL_ddensity;
-    double dL_dk_pertype[Constraint::CONSTRAINT_NUM];
-    std::vector<std::vector<VecXd>> dL_dsplines;
-    VecXd dL_dxfixed;
-    VecXd dL_dxfixed_accum;
-    std::vector<std::pair<int, double>> dL_dmu;
-    int badMatrixCounter;
-    int goodMatrixCounter;
-    double loss;
-    long long totalRuntime;
-    TimerContent timer;
-    std::vector<TimerEntry> accumTimer;
-    PerformanceTiming accumSolvePerformanceReport;
-    bool converged;
-    int convergedAccum;
-    int backwardIters;
-    int backwardTotalIters;
-    int correspondingForwardIdxInStats;
-    double rho;
-  };
+        VecXd dL_dx;
+        VecXd dL_dv;
+        VecXd dL_dconstantForceField;
+        Vec3d dL_dfext;
+        Vec5d dL_dwind; // vec3(force),period,phase
+        VecXd dL_dwindtimestep;
+        double decrease_rate;
+        double barrier_filter;
+        double l2_norm_factor;
+        double dL_ddensity;
+        double dL_dk_pertype[Constraint::CONSTRAINT_NUM];
+        std::vector<std::vector<VecXd>> dL_dsplines;
+        VecXd dL_dxfixed;
+        VecXd dL_dxfixed_accum;
+        std::vector<std::pair<int, double>> dL_dmu;
+        int badMatrixCounter;
+        int goodMatrixCounter;
+        double loss;
+        long long totalRuntime;
+        TimerContent timer;
+        std::vector<TimerEntry> accumTimer;
+        PerformanceTiming accumSolvePerformanceReport;
+        bool converged;
+        int convergedAccum;
+        int backwardIters;
+        int backwardTotalIters;
+        int correspondingForwardIdxInStats;
+        double rho;
+    };
 
   BackwardInformation backwardInfoDefault = {
       .dL_dx = VecXd(0),

@@ -3,10 +3,13 @@
 //
 
 #include "Simulation.h"
+#include <ipc/broad_phase/broad_phase.hpp>
+#include <limits>
+#include <tbb/global_control.h>
 
 // #define DEBUG_EXPLOSION
 // #define  DEBUG_SELFCOLLISION
-volatile bool Simulation::gravityEnabled = false; //true;
+volatile bool Simulation::gravityEnabled = true;
 volatile bool Simulation::bendingEnabled = true;
 volatile bool Simulation::staticEnabled = false;
 volatile bool Simulation::contactEnabled = true;
@@ -20,6 +23,11 @@ double Simulation::backwardConvergenceThreshold = 1e-4 * 0.5;
 double Simulation::windNorm = 0.15;
 double Simulation::windFrequency = 14;
 double Simulation::windPhase = 0;
+double barrier_stiffness = 10;
+double epsv_times_h = 1e-3;
+double mu = 0.5;
+Eigen::MatrixXi E; 
+Eigen::MatrixXi F;
 
 double *Simulation::k_stiff_arr[Constraint::CONSTRAINT_NUM] = {
     &Spring::k_stiff, &AttachmentSpring::k_stiff, &Triangle::k_stiff,
@@ -1064,6 +1072,8 @@ void Simulation::stepNN(int idx, const VecXd &x, const VecXd &v,
   forwardRecords[forwardRecords.size() - 1].stepIdx = idx;
 }
 void Simulation::step() {
+  tbb::global_control thread_limiter(
+        tbb::global_control::max_allowed_parallelism, 1);
   timeSteptimer = Timer();
   timeSteptimer.enabled = true;
   timeSteptimer.ticStart();
@@ -1080,21 +1090,21 @@ void Simulation::step() {
         projections = VecXd(sysMat[currentSysmatId].constraintNum);
         projections.setZero();
         for (int j = 0; j < Constraint::CONSTRAINT_NUM; j++) {
-          projections_pertype[j] =
-              VecXd(sysMat[currentSysmatId].constraintNum_pertype[j]);
+          projections_pertype[j] = VecXd(sysMat[currentSysmatId].constraintNum_pertype[j]);
           projections_pertype[j].setZero();
         }
       }
 
       break;
     }
+
   }
 
   explosionEncountered = false;
   bool printOptimizationDetails = false;
   int TOTAL_DOF = particles.size() * 3;
   double CONVERGE_EPSILON = forwardConvergenceThreshold;
-#ifdef DEBUG_EXPLOSION
+#ifdef  DEBUG_EXPLOSION
   std::vector<std::pair<VecXd, VecXd>> fAndRs;
   std::vector<std::pair<VecXd, VecXd>> x_newAndErrors;
 #endif
@@ -1103,27 +1113,22 @@ void Simulation::step() {
 
   stepPrimitives();
 
-  std::pair<collisionInfoPair,
-            std::vector<std::vector<SelfCollisionInformation>>>
-      detectionInfos;
+  std::pair<collisionInfoPair, std::vector<std::vector<SelfCollisionInformation>>> detectionInfos;
 
   VecXd x_new(3 * particles.size());
   VecXd v_new(3 * particles.size());
   VecXd f_int(3 * particles.size()), f_ext(3 * particles.size());
-  VecXd f(3 * particles.size()); // this is f in contact force calculation, but
-                                 // it's different than f_int + f_ext
+  VecXd f(3 * particles.size()); // this is f in contact force calculation, but it's different than f_int + f_ext
   VecXd r(3 * particles.size());
   ForwardInformation returnRecord;
-  returnRecord.t =
-      forwardRecords[forwardRecords.size() - 1].t + sceneConfig.timeStep;
+  returnRecord.t = forwardRecords[forwardRecords.size() - 1].t + sceneConfig.timeStep;
   returnRecord.stepIdx = forwardRecords.size();
   returnRecord.sysMatId = currentSysmatId;
   returnRecord.splines = sysMat[currentSysmatId].controlPointSplines;
   r.setZero();
 
   double windFactor = fillForces(f_int, f_ext, v_n, x_n, returnRecord.t);
-  s_n = x_n + sceneConfig.timeStep * v_n +
-        sceneConfig.timeStep * sceneConfig.timeStep * M_inv * f_ext;
+  s_n = x_n + sceneConfig.timeStep * v_n + sceneConfig.timeStep * sceneConfig.timeStep * M_inv * f_ext;
 
   returnRecord.x_prev = x_n;
   returnRecord.v_prev = v_n;
@@ -1132,16 +1137,18 @@ void Simulation::step() {
   returnRecord.windParams.segment(0, 3) = wind * windNorm;
   returnRecord.windParams[3] = windFrequency;
   returnRecord.windParams[4] = windPhase;
-  returnRecord.totalConverged =
-      forwardRecords[forwardRecords.size() - 1].totalConverged;
+  returnRecord.totalConverged = forwardRecords[forwardRecords.size() - 1].totalConverged;
+
 
   double curEnergy = 0;
   if (printOptimizationDetails) {
     curEnergy = evaluateSystemEnergy(v_n, x_n);
     double curError = evaluateEnergy(x_n);
-    std::printf("-------current energy: %.6f error: %.6f\n", curEnergy,
+    std::printf("-------current energy: %.6f error: %.6f\n",
+                curEnergy,
                 curError);
   }
+
 
   VecXd f_primitives(3 * primitives.size());
   VecXd v_n_primitives(3 * primitives.size());
@@ -1154,14 +1161,12 @@ void Simulation::step() {
   f_primitives.setZero();
   delta_v_primitives.setZero();
   for (int i = 0; i < primitives.size(); i++) {
-    f_primitives.segment(3 * i, 3) =
-        primitives[i]->getForces(sceneConfig.timeStep);
-    delta_v_primitives.segment(3 * i, 3) = f_primitives.segment(3 * i, 3) /
-                                           primitives[i]->mass *
-                                           sceneConfig.timeStep;
+    f_primitives.segment(3 * i, 3) = primitives[i]->getForces(sceneConfig.timeStep);
+    delta_v_primitives.segment(3 * i, 3) = f_primitives.segment(3 * i, 3) / primitives[i]->mass * sceneConfig.timeStep;
     x_n_primitives.segment(3 * i, 3) = primitives[i]->center;
     v_n_primitives.segment(3 * i, 3) = primitives[i]->velocity;
   }
+
 
   vnew_n_primitives = v_n_primitives + delta_v_primitives;
   xnew_n_primitives = x_n_primitives + sceneConfig.timeStep * vnew_n_primitives;
@@ -1170,6 +1175,7 @@ void Simulation::step() {
     if (contactEnabled && prim->isEnabled && (!prim->isStaitc)) {
       prim->velocity = vnew_n_primitives.segment(i * 3, 3);
       prim->center = xnew_n_primitives.segment(i * 3, 3);
+
     }
   }
 
@@ -1177,14 +1183,18 @@ void Simulation::step() {
   if (!debugSkipfixedpointstep)
     t_spline = stepFixPoints(returnRecord.t);
 
+
 #pragma omp parallel for if (OPENMP_ENABLED)
   for (int i = 0; i < particles.size(); i++) {
     Particle &p = particles[i];
     p.pos = s_n.segment(3 * p.idx, 3);
     p.velocity = (s_n - x_n).segment(p.idx * 3, 3) / sceneConfig.timeStep;
+
   }
 
+
   timeSteptimer.toc();
+
 
   {
 
@@ -1200,14 +1210,14 @@ void Simulation::step() {
     VecXd P_times_xn = sysMat[currentSysmatId].P * x_n;
     VecXd x_new_lastconverging = x_n, v_new_lastconverging = v_n;
 
+
     timeSteptimer.toc();
     PD_TOTAL_ITER = (-std::log10(forwardConvergenceThreshold)) * 150;
 
     for (int iterIdx = 0; iterIdx < PD_TOTAL_ITER; iterIdx++) {
 
       timeSteptimer.tic("iter init");
-      std::pair<Eigen::VectorXd, Eigen::VectorXd> posVelVec =
-          getCurrentPosVelocityVec();
+      std::pair<Eigen::VectorXd, Eigen::VectorXd> posVelVec = getCurrentPosVelocityVec();
       VecXd &v_now = posVelVec.second;
       VecXd &x_now = posVelVec.first;
       timeSteptimer.toc();
@@ -1224,9 +1234,8 @@ void Simulation::step() {
 
         projections.segment(c->c_idx, c->constraintNum) = c->project(x_now);
 
-        projections_pertype[c->constraintType].segment(c->c_weightless_idx,
-                                                       c->constraintNum) =
-            projections.segment(c->c_idx, c->constraintNum);
+        projections_pertype[c->constraintType].segment(c->c_weightless_idx, c->constraintNum) = projections.segment(
+                c->c_idx, c->constraintNum);
       }
 
       timeSteptimer.toc();
@@ -1237,116 +1246,111 @@ void Simulation::step() {
 #pragma omp parallel for if (OPENMP_ENABLED)
         for (int i = 0; i < Constraint::CONSTRAINT_NUM; i++) {
           returnRecord.At_p_weightless_pertype[i] =
-              sysMat[currentSysmatId].A_t_pertype[i] * projections_pertype[i] /
-              std::sqrt(*(k_stiff_arr[i]));
+                  sysMat[currentSysmatId].A_t_pertype[i] * projections_pertype[i] / std::sqrt(*(k_stiff_arr[i]));
         }
       }
 
       timeSteptimer.toc();
       timeSteptimer.tic("calc b");
-      b = (sysMat[currentSysmatId].A_t * projections) *
-              (sceneConfig.timeStep * sceneConfig.timeStep) +
-          M_times_sn;
+      b = (sysMat[currentSysmatId].A_t * projections) * (sceneConfig.timeStep * sceneConfig.timeStep) + M_times_sn;
       timeSteptimer.toc();
 
       enum PD_VERSION {
-        VELOCITY_BASED, // formulation from LY 20, includes dry frictional
-                        // contact
-        POSITION_BASED // formulation from Bouaziz 14, does not include friction
-                       // calculation
+          VELOCITY_BASED, // formulation from LY 20, includes dry frictional contact
+          POSITION_BASED // formulation from Bouaziz 14, does not include friction calculation
       };
       double deltav_prim_changes = 0;
       std::pair<VecXd, VecXd> collisionResults;
       PD_VERSION pdVersion = VELOCITY_BASED;
       switch (pdVersion) {
-      case POSITION_BASED: {
-        x_new = sysMat[currentSysmatId].solver.solve(b);
-        newEnergy = evaluateEnergy(x_new);
-        v_new = (x_new - x_n) / sceneConfig.timeStep;
+        case POSITION_BASED: {
+          x_new = sysMat[currentSysmatId].solver.solve(b);
+          newEnergy = evaluateEnergy(x_new);
+          v_new = (x_new - x_n) / sceneConfig.timeStep;
 
-        for (Particle &p : particles) {
-          p.pos = x_new.segment(p.idx * 3, 3);
-          p.velocity = v_new.segment(p.idx * 3, 3);
-        }
-        break;
-      }
+          for (Particle &p  : particles) {
+            p.pos = x_new.segment(p.idx * 3, 3);
+            p.velocity = v_new.segment(p.idx * 3, 3);
 
-      case VELOCITY_BASED: {
-        timeSteptimer.tic("b_tilde and f");
-        VecXd b_tilde = (b - P_times_xn) / sceneConfig.timeStep;
-        f = b_tilde - sysMat[currentSysmatId].C * v_now;
-        VecXd r_prim(3 * primitives.size());
-        timeSteptimer.toc();
-
-        if (contactEnabled) {
-          if (iterIdx == 0) {
-            detectionInfos = collisionDetection(x_n, v_now, xnew_n_primitives,
-                                                v_n_primitives);
           }
-          timeSteptimer.tic("calc r");
-          collisionResults = calculateDryFrictionVector(f, detectionInfos);
-          r = collisionResults.first;
-          r_prim = collisionResults.second;
+          break;
+        }
+
+        case VELOCITY_BASED: {
+          timeSteptimer.tic("b_tilde and f");
+          VecXd b_tilde = (b - P_times_xn) / sceneConfig.timeStep;
+          f = b_tilde - sysMat[currentSysmatId].C * v_now;
+          VecXd r_prim(3 * primitives.size());
           timeSteptimer.toc();
-        } else {
-          r.setZero();
-          r_prim.setZero();
-        }
-        timeSteptimer.tic("solve and update");
-        v_new = sysMat[currentSysmatId].solver.solve(b_tilde + r);
-        x_new = v_new * sceneConfig.timeStep + x_n;
 
-        timeSteptimer.toc();
+          if (contactEnabled) {
+            if (iterIdx == 0) {
+              detectionInfos = collisionDetection(x_n, v_now, xnew_n_primitives, v_n_primitives);
+            }
+            timeSteptimer.tic("calc r");
+            collisionResults = calculateDryFrictionVector(f, detectionInfos);
+            r = collisionResults.first;
+            r_prim = collisionResults.second;
+            timeSteptimer.toc();
+          } else {
+            r.setZero();
+            r_prim.setZero();
+          }
+          timeSteptimer.tic("solve and update");
+          v_new = sysMat[currentSysmatId].solver.solve(b_tilde + r);
+          x_new = v_new * sceneConfig.timeStep + x_n;
 
-        bool testvbased_vs_xbased = false;
-        if (testvbased_vs_xbased) {
-          VecXd x_new2 = sysMat[currentSysmatId].solver.solve(
-              b + sceneConfig.timeStep * r);
-          VecXd diff = x_new - x_new2;
-          std::printf("xnew1: %.6f xnew2: %.6f diff: %.6f error: %.6f\n",
-                      x_new.norm(), x_new2.norm(), diff.norm(),
-                      std::abs(diff.dot(x_now.cwiseInverse()) / diff.rows()));
-        }
+          timeSteptimer.toc();
 
-#ifdef DEBUG_EXPLOSION
-        x_newAndErrors.emplace_back(
-            std::make_pair(x_new, P * x_new - (b_tilde + r)));
-        fAndRs.emplace_back(std::make_pair(f, r));
+
+          bool testvbased_vs_xbased = false;
+          if (testvbased_vs_xbased) {
+            VecXd x_new2 = sysMat[currentSysmatId].solver.solve(b + sceneConfig.timeStep * r);
+            VecXd diff = x_new - x_new2;
+            std::printf("xnew1: %.6f xnew2: %.6f diff: %.6f error: %.6f\n", x_new.norm(), x_new2.norm(), diff.norm(),
+                        std::abs(diff.dot(x_now.cwiseInverse()) / diff.rows()));
+          }
+
+#ifdef  DEBUG_EXPLOSION
+          x_newAndErrors.emplace_back(std::make_pair(x_new, P * x_new - (b_tilde + r)));
+            fAndRs.emplace_back(std::make_pair(f, r));
 #endif
 
-        timeSteptimer.tic("step primitives");
-        if (false) {
-          VecXd delta_v_primitives_new =
-              (f_primitives * sceneConfig.timeStep + r_prim)
-                  .cwiseProduct(m_primitivesinv);
-          deltav_prim_changes =
-              (delta_v_primitives_new - delta_v_primitives).norm();
-          delta_v_primitives = delta_v_primitives_new;
+          timeSteptimer.tic("step primitives");
+          if (false) {
+            VecXd delta_v_primitives_new = (f_primitives * sceneConfig.timeStep + r_prim).cwiseProduct(
+                    m_primitivesinv);
+            deltav_prim_changes = (delta_v_primitives_new - delta_v_primitives).norm();
+            delta_v_primitives = delta_v_primitives_new;
 
-          vnew_n_primitives = v_n_primitives + delta_v_primitives;
-          xnew_n_primitives =
-              x_n_primitives + sceneConfig.timeStep * vnew_n_primitives;
-          for (int i = 0; i < primitives.size(); i++) {
-            Primitive *prim = primitives[i];
-            if (contactEnabled && prim->isEnabled && (!prim->isStaitc)) {
-              prim->velocity = vnew_n_primitives.segment(i * 3, 3);
-              prim->center = xnew_n_primitives.segment(i * 3, 3);
+            vnew_n_primitives = v_n_primitives + delta_v_primitives;
+            xnew_n_primitives = x_n_primitives + sceneConfig.timeStep * vnew_n_primitives;
+            for (int i = 0; i < primitives.size(); i++) {
+              Primitive *prim = primitives[i];
+              if (contactEnabled && prim->isEnabled && (!prim->isStaitc)) {
+                prim->velocity = vnew_n_primitives.segment(i * 3, 3);
+                prim->center = xnew_n_primitives.segment(i * 3, 3);
+
+              }
             }
+
           }
-        }
-        timeSteptimer.toc();
-        timeSteptimer.tic("update");
+          timeSteptimer.toc();
+          timeSteptimer.tic("update");
 
-        //            #pragma omp parallel for if (OPENMP_ENABLED)
-        for (int i = 0; i < particles.size(); i++) {
-          Particle &p = particles[i];
-          p.velocity = v_new.segment(p.idx * 3, 3);
-          p.pos = x_new.segment(p.idx * 3, 3);
-        }
-        timeSteptimer.toc();
 
-        break;
-      }
+//            #pragma omp parallel for if (OPENMP_ENABLED)
+          for (int i = 0; i < particles.size(); i++) {
+            Particle &p = particles[i];
+            p.velocity = v_new.segment(p.idx * 3, 3);
+            p.pos = x_new.segment(p.idx * 3, 3);
+          }
+          timeSteptimer.toc();
+
+          break;
+
+
+        }
       }
 
       timeSteptimer.tic("Convergence Test and Cleanup");
@@ -1363,19 +1367,15 @@ void Simulation::step() {
       if (converged) {
         // has converged
         if (printOptimizationDetails)
-          std::printf(
-              "pd converging at iteration %d with error: %.10f thresh: %.10f\n",
-              iterIdx, x_diff, CONVERGE_EPSILON);
+          std::printf("pd converging at iteration %d with error: %.10f thresh: %.10f\n", iterIdx, x_diff,  CONVERGE_EPSILON);
         totalIter += iterIdx + 1;
         returnRecord.converged = true;
         returnRecord.totalConverged++;
 
         returnRecord.convergeIter = iterIdx + 1;
-        returnRecord.cumulateIter =
-            returnRecord.convergeIter +
-            (forwardRecords.empty()
-                 ? 0
-                 : forwardRecords[forwardRecords.size() - 1].cumulateIter);
+        returnRecord.cumulateIter = returnRecord.convergeIter +
+                                    (forwardRecords.empty() ? 0 : forwardRecords[forwardRecords.size() -
+                                                                                 1].cumulateIter);
         timeSteptimer.toc();
         break;
       } else {
@@ -1383,11 +1383,9 @@ void Simulation::step() {
         if (iterIdx == PD_TOTAL_ITER - 1) {
           returnRecord.converged = false;
           returnRecord.convergeIter = PD_TOTAL_ITER;
-          returnRecord.cumulateIter =
-              returnRecord.convergeIter +
-              (forwardRecords.empty()
-                   ? 0
-                   : forwardRecords[forwardRecords.size() - 1].cumulateIter);
+          returnRecord.cumulateIter = returnRecord.convergeIter +
+                                      (forwardRecords.empty() ? 0 : forwardRecords[forwardRecords.size() -
+                                                                                   1].cumulateIter);
 
           bool revertToLastConverging = true;
           if (revertToLastConverging) {
@@ -1407,9 +1405,330 @@ void Simulation::step() {
         timeSteptimer.toc();
       }
     }
+
+    timeSteptimer.tic("start ipc");
+    std::cout.precision(std::numeric_limits<double>::digits10);
+    double dhat = 1e-3;
+    double gamma = 0.1;
+    double theta = 1e-6;
+    double epsilon_d = 1e-4;
+    //x_new, x_n, xnew_n_primitives, x_n_primitives
+    bool use_convergent_formulation = false;
+    
+    int particles_size = particles.size();
+    // int primitives_size = tmp_plane.points.size();
+    Eigen::MatrixXd V_new(particles_size /*+ primitives_size*/, 3);
+    Eigen::MatrixXd V_previous(particles_size /*+ primitives_size*/, 3);
+
+    //initial x_n into vertex
+    for(int i=0; i<particles.size(); i++) {
+      V_new.row(i) = x_new.segment(i*3, 3);
+    }
+    // for(int i=0; i<tmp_plane.points.size(); i++) {  
+    //   V_new.row(particles.size() + i) = tmp_plane.points[i].pos_rest;
+    // }
+
+    E = Eigen::MatrixXi(mesh.size()*3 /*+ tmp_plane.mesh.size()*3*/, 2); 
+    int begin_edge_idx = 0;
+    //Face: point index in V
+    F = Eigen::MatrixXi(mesh.size() /*+ tmp_plane.mesh.size()*/, 3);
+    for(int i=0; i<mesh.size(); i++) {
+      F(i, 0) = mesh[i].p0_idx;
+      F(i, 1) = mesh[i].p1_idx;
+      F(i, 2) = mesh[i].p2_idx;
+      if(F(i, 0)< F(i, 1)) {
+        E(begin_edge_idx, 0) = F(i, 0);
+        E(begin_edge_idx, 1) = F(i, 1);
+      } else {
+        E(begin_edge_idx, 0) = F(i, 1);
+        E(begin_edge_idx, 1) = F(i, 0);
+      }
+      begin_edge_idx++;
+      if(F(i, 0)< F(i, 2)) {
+        E(begin_edge_idx, 0) = F(i, 0);
+        E(begin_edge_idx, 1) = F(i, 2);
+      } else {
+        E(begin_edge_idx, 0) = F(i, 2);
+        E(begin_edge_idx, 1) = F(i, 0);
+      }
+      begin_edge_idx++;
+      if(F(i, 1)< F(i, 2)) {
+        E(begin_edge_idx, 0) = F(i, 1);
+        E(begin_edge_idx, 1) = F(i, 2);
+      } else {
+        E(begin_edge_idx, 0) = F(i, 2);
+        E(begin_edge_idx, 1) = F(i, 1);
+      }
+      begin_edge_idx++;
+    }
+    // for(int i=0; i<tmp_plane.mesh.size(); i++) {
+    //   int k = i + mesh.size();
+    //   F(k, 0) = tmp_plane.mesh[i].p0_idx + particles_size;
+    //   F(k, 1) = tmp_plane.mesh[i].p1_idx + particles_size;
+    //   F(k, 2) = tmp_plane.mesh[i].p2_idx + particles_size;
+    //   if(F(k, 0)< F(k, 1)) {
+    //     E(begin_edge_idx, 0) = F(k, 0);
+    //     E(begin_edge_idx, 1) = F(k, 1);
+    //   } else {
+    //     E(begin_edge_idx, 0) = F(k, 1);
+    //     E(begin_edge_idx, 1) = F(k, 0);
+    //   }
+    //   begin_edge_idx++;
+    //   if(F(k, 0)< F(k, 2)) {
+    //     E(begin_edge_idx, 0) = F(k, 0);
+    //     E(begin_edge_idx, 1) = F(k, 2);
+    //   } else {
+    //     E(begin_edge_idx, 0) = F(k, 2);
+    //     E(begin_edge_idx, 1) = F(k, 0);
+    //   }
+    //   begin_edge_idx++;
+    //   if(F(k, 1)< F(k, 2)) {
+    //     E(begin_edge_idx, 0) = F(k, 1);
+    //     E(begin_edge_idx, 1) = F(k, 2);
+    //   } else {
+    //     E(begin_edge_idx, 0) = F(k, 2);
+    //     E(begin_edge_idx, 1) = F(k, 1);
+    //   }
+    //   begin_edge_idx++;
+    // }
+    // std::cout<<"mesh size"<<mesh.size()<<std::endl;
+    // std::cout<<"begin_edge_idx"<<begin_edge_idx<<std::endl;
+    
+    double E_prev = 0.0;
+    Eigen::VectorXd x_new_full((particles_size /*+ primitives_size*/) * 3);
+    Eigen::VectorXd x_prev((particles_size /*+ primitives_size*/) * 3);
+    x_prev.segment(0, particles_size*3) = x_n;
+    x_new_full.segment(0, particles_size*3) = x_new;
+    // for(int i=0; i<tmp_plane.points.size(); i++) {  
+    //   x_prev.segment(particles_size*3+i*3, 3) = tmp_plane.points[i].pos_rest;
+    //   x_new_full.segment(particles_size*3+i*3, 3) = tmp_plane.points[i].pos_rest;
+    // }
+    Eigen::VectorXd ipc_p(particles.size()*3 /*+ primitives_size*3*/);
+    // start loop
+    ipc::Constraints constraint_set;
+    Eigen::VectorXd grad_b;
+    Eigen::MatrixXd hess_b(/*primitives_size*3 +*/ particles_size*3, /*primitives_size*3 +*/ particles_size*3);
+    Eigen::VectorXd grad_f;
+    Eigen::MatrixXd hess_f(/*primitives_size*3 +*/ particles_size*3, /*primitives_size*3 +*/ particles_size*3);
+    double potential_f;
+    Eigen::VectorXd x_val_diff;
+    Eigen::MatrixXd identityMat;
+    Eigen::SparseMatrix<double> hess_sparse;
+    Eigen::SimplicialLLT<Eigen::SparseMatrix<double>> ipc_solver;
+    Eigen::VectorXd x_update(particles.size()*3 /*+ primitives_size*3*/);
+    Eigen::MatrixXd V_update(particles_size /*+ primitives_size*/, 3);
+    Eigen::MatrixXd V_next(particles_size /*+ primitives_size*/, 3);
+    ipc::FrictionConstraints friction_constraint_set;
+    
+    int loop_ipc = 0;
+    Eigen::VectorXd grad_B;
+    Eigen::VectorXd grad_pd_B;
+    bool isBarrierDirection = false;
+    double maxAlpha = 0.0;
+    bool hasFriction = false;
+    do {
+      loop_ipc++;
+      for(int i=0; i<(particles.size() /*+ primitives_size*/); i++) {
+        V_previous.row(i) = x_prev.segment(i*3, 3);
+      }
+      for(int i=0; i<particles_size; i++) {
+        V_next.row(i) = x_prev.segment(i*3, 3) + v_n.segment(i*3, 3);
+      }
+      // for(int i=0; i<primitives_size; i++) {
+      //   V_next.row(particles_size + i) = x_prev.segment((particles_size+i)*3, 3);
+      // }
+
+      timeSteptimer.tic("calculate collision mesh");
+      ipc::CollisionMesh collision_mesh(V_previous, E, F);
+      constraint_set.use_convergent_formulation = use_convergent_formulation;
+      constraint_set.build(collision_mesh, V_previous, dhat);
+      timeSteptimer.toc();
+      if(hasFriction) {
+        ipc::construct_friction_constraint_set(
+          collision_mesh, V_previous, constraint_set, dhat, barrier_stiffness, mu,
+          friction_constraint_set);
+        ipc::compute_friction_potential_gradient(
+          collision_mesh, V_previous, V_next, friction_constraint_set, epsv_times_h); 
+      }
+
+      //Computer barrier potential
+      timeSteptimer.tic("gauss optimizer");
+      double barrier;
+
+      if(hasFriction) {
+        grad_f = ipc::compute_friction_potential_gradient(collision_mesh, V_previous, V_next, friction_constraint_set, epsv_times_h);
+        hess_f = ipc::compute_friction_potential_hessian(collision_mesh, V_previous, V_next, friction_constraint_set, epsv_times_h);
+        // potential_f = ipc::compute_friction_potential(collision_mesh, V_previous, V_next,  friction_constraint_set, epsv_times_h);
+        // change gamma
+        barrier = gamma* (ipc::compute_barrier_potential(collision_mesh, V_previous, constraint_set, dhat)) + potential_f;
+        grad_b = gamma*(ipc::compute_barrier_potential_gradient(collision_mesh, V_previous, constraint_set, dhat))+grad_f;
+        hess_b = gamma*(ipc::compute_barrier_potential_hessian(collision_mesh, V_previous, constraint_set, dhat))+hess_f;
+      } else {
+        barrier = gamma*ipc::compute_barrier_potential(collision_mesh, V_previous, constraint_set, dhat);
+        grad_b = gamma*ipc::compute_barrier_potential_gradient(collision_mesh, V_previous, constraint_set, dhat);
+        hess_b = gamma*ipc::compute_barrier_potential_hessian(collision_mesh, V_previous, constraint_set, dhat);
+
+        bool detect_collision = false;
+        std::vector<int> collision_vertex;
+        for (int i = 0; i < grad_b.size(); i++)
+        {
+          if (abs(grad_b[i]) > 0)
+          {
+            detect_collision = true;
+            collision_vertex.push_back(i / 3);
+            if(loop_ipc == 1)
+            {
+              returnRecord.collision_vertex.push_back(i / 3);
+            }
+          }
+        }
+        if (detect_collision)
+        {
+          std::cout << "detect collision: ";
+          for (int i = 0; i < collision_vertex.size(); i++)
+          {
+            std::cout << collision_vertex[i] << " ";
+          }
+          std::cout << std::endl;
+        }
+      }
+      if(loop_ipc==1) 
+        grad_pd_B = grad_b;
+      // std::cout<<"particles size"<<particles.size()<<std::endl;
+      // std::cout<<"grad_size"<<grad_b.size()<<std::endl;
+      // std::cout<<"hess_b_size"<<hess_b.size()<<std::endl;
+      x_val_diff = x_prev - x_new_full;
+      double sum = x_val_diff.array().square().sum();
+      double E_prev = barrier + theta * sum;
+      // double inner_product = (grad_b.segment(0, 3*particles_size).array() * x_val_diff.segment(0, 3*particles_size).array()).sum() / (std::sqrt(grad_b.segment(0, 3*particles_size).array().square().sum()) * std::sqrt(x_val_diff.segment(0, 3*particles_size).array().square().sum()));
+      // std::cout<<"inner product: "<<inner_product<<std::endl;
+      // test_sum += 2 * test_sum;
+      // std::cout<<"test_sum: "<<test_sum(0)<<test_sum(1)<<test_sum(2)<<std::endl;
+      grad_B = grad_b;
+
+      grad_b += theta * x_val_diff;
+      // calculate barrier 
+      identityMat = Eigen::MatrixXd::Identity((particles_size /*+ primitives_size*/)*3, (particles_size /*+ primitives_size*/)*3);
+      hess_b += theta * identityMat;
+
+      // Hessian*p = -gradient
+      hess_sparse = hess_b.sparseView();
+      SpMat I = SpMat(hess_sparse.rows(), hess_sparse.cols());
+      ipc_solver.compute(hess_sparse);
+      ipc_p = ipc_solver.solve(-grad_b);
+
+      // inner_product = (ipc_p.segment(0, 3*particles_size).array() * x_val_diff.segment(0, 3*particles_size).array()).sum() /(std::sqrt(ipc_p.segment(0, 3*particles_size).array().square().sum()) * std::sqrt(x_val_diff.segment(0, 3*particles_size).array().square().sum()));
+      // std::cout<<"inner product newton gradient direction: "<<inner_product<<std::endl;
+      // inner_product = (ipc_p.segment(0, 3*particles_size).array() * grad_B.segment(0, 3*particles_size).array()).sum() /(std::sqrt(ipc_p.segment(0, 3*particles_size).array().square().sum()) * std::sqrt(grad_B.segment(0, 3*particles_size).array().square().sum()));
+      // std::cout<<"inner product newton direction and barrier gradient: "<<inner_product<<std::endl;
+      timeSteptimer.toc();
+      // std::cout<<"barrier gradient"<<std::sqrt(grad_B.segment(0, 3*particles_size).array().square().sum())<<std::endl;
+      // std::cout<<"L2 norm gradient"<<std::sqrt(x_val_diff.segment(0, 3*particles_size).array().square().sum())<<std::endl;
+
+      timeSteptimer.tic("compute collision max stepsize");
+      ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::SPATIAL_HASH;
+      // only update particles
+      x_update.segment(0, particles_size*3) = (x_prev + ipc_p).segment(0, particles_size*3);
+      // x_update.segment(particles_size*3, primitives_size*3) = x_prev.segment(particles_size*3, primitives_size*3);
+      for(int i=0; i < particles_size /*+ primitives_size*/; i++) {
+        V_update.row(i) = x_update.segment(i*3, 3);
+      }
+      // std::cout << "start compute collision free stepsize" << std::endl;
+      double alpha = ipc::compute_collision_free_stepsize(collision_mesh, V_previous, V_update, method, 1e-7, long(10000));
+      alpha = alpha / 2.0;
+      // std::cout << "end compute collision free stepsize" << std::endl;
+      // std::cout << "alpha: " << alpha << std::endl;
+      timeSteptimer.toc();
+     
+      if(alpha < 1e-4) {
+        isBarrierDirection = true;
+        // theta = 1e-6;
+        std::cout<<"is in barrier direction "<<std::endl;
+        continue;   
+      } 
+
+      // std::cout<<"p: "<<ipc_p.cwiseAbs().maxCoeff()<<std::endl;
+      double E_now = 0.0;
+
+      timeSteptimer.tic("line search");
+      int loop_line_search = 0;
+      // std::cout<<"barrier function"<<barrier<<std::endl;
+      // std::cout<<"L2 norm square"<<sum<<std::endl;
+      do {
+        loop_line_search++;
+        x_update.segment(0, particles_size*3) = (x_prev + alpha * ipc_p).segment(0, particles_size*3);
+        for(int i=0; i<particles.size(); i++) {
+          V_update.row(i) = x_update.segment(i*3, 3);
+        }
+        if(hasFriction) {
+          
+          constraint_set.build(collision_mesh, V_update, dhat);
+          double L2_norm_square = (x_new_full - x_update).array().square().sum();
+          ipc::construct_friction_constraint_set(
+            collision_mesh, V_update, constraint_set, dhat, barrier_stiffness, mu,
+            friction_constraint_set);
+          for(int i=0; i<particles_size; i++) {
+            V_next.row(i) = x_update.segment(i*3, 3) + v_n.segment(i*3, 3);
+          }
+          // for(int i=0; i<primitives_size; i++) {
+          //   V_next.row(particles_size + i) = x_update.segment((particles_size+i)*3, 3);
+          // }
+          // double cur_potential_f = ipc::compute_friction_potential(
+          //   collision_mesh, V_update, V_next, friction_constraint_set, epsv_times_h); 
+          double cur_potential_f = 0.0;
+          E_now = gamma * (ipc::compute_barrier_potential(collision_mesh, V_update, constraint_set, dhat))+cur_potential_f + theta*L2_norm_square;  
+          
+        } else {
+          constraint_set.build(collision_mesh, V_update, dhat);
+          double L2_norm_square = (x_new_full - x_update).array().square().sum();
+          E_now = gamma * ipc::compute_barrier_potential(collision_mesh, V_update, constraint_set, dhat) + theta*L2_norm_square;
+        }
+        alpha = alpha/2;
+      } while(E_now > E_prev&&loop_line_search<100);
+    
+      //////////////change loop max iteration num
+    // std::cout<<"alpha:"<<alpha<<std::endl;
+    maxAlpha = std::max(alpha, maxAlpha);
+    // std::cout<<"loop line search"<<loop_line_search<<std::endl;
+    timeSteptimer.toc();
+
+    E_prev = E_now;
+    x_prev = x_update; } while((ipc_p.cwiseAbs().maxCoeff()>epsilon_d)&&loop_ipc<5);
+    double largest_step = 0.0;
+    // Eigen::VectorXd barrierFilter(particles_size*3);
+    // for(int i=0; i<particles_size; i++) {
+    //   if(grad_pd_B[3*i]==0.0 && grad_pd_B[3*i+1]==0.0 && grad_pd_B[3*i+2]==0.0) {
+    //     // if not moved update x_prev
+    //     //x_prev.segment(3*i, 3) = x_new.segment(3*i, 3);
+    //     Eigen::Vector3d move_step = x_new.segment(3*i, 3) - x_n.segment(3*i, 3);
+    //     double cur_step = move_step.squaredNorm();
+    //     largest_step = std::max(cur_step, largest_step);
+    //   } 
+    // }
+    // double decrease_rate = std::min(std::sqrt(dhat/largest_step)/2.0, 1.0);
+    // decrease_rate = std::min(decrease_rate, maxAlpha);
+    // for(int i=0; i<particles_size; i++) {
+    //   if(grad_pd_B[3*i]==0.0 && grad_pd_B[3*i+1]==0.0 && grad_pd_B[3*i+2]==0.0) {
+    //     // if not moved update x_prev
+    //     x_prev.segment(3*i, 3) = (x_new.segment(3*i, 3) - x_n.segment(3*i, 3)) * decrease_rate + x_n.segment(3*i, 3);
+    //   }
+    // }
+    // std::cout<<"loop number: "<<loop_ipc<<std::endl;
+    // std::cout<<"matrix size"<<hess_b.rows()<<" , "<<hess_b.cols()<<std::endl;
+    returnRecord.Hessian = hess_b.block(0, 0, particles_size*3, particles_size*3);
+    returnRecord.l2_norm_factor = theta;
+    returnRecord.x_pd = x_new;
+    returnRecord.v_pd = v_new;
+    // returnRecord.barrier_filter = barrierFilter;
+    x_new= x_prev.segment(0, particles.size()*3);
+    v_new = (x_prev.segment(0, particles.size()*3) - x_n)/sceneConfig.timeStep;
+    //end loop
+    //x_prev = x_update;
+    timeSteptimer.toc();
   }
 
   timeSteptimer.ticEnd();
+  // timeSteptimer.report();
   VecXd x_fixedpoints(3 * sysMat[currentSysmatId].fixedPoints.size());
   x_fixedpoints.setZero();
   for (FixedPoint &p : sysMat[currentSysmatId].fixedPoints) {
@@ -1421,13 +1740,11 @@ void Simulation::step() {
   returnRecord.f = f;
   returnRecord.r = r;
   returnRecord.timer = timeSteptimer.getReportMicroseconds();
-  returnRecord.accumTimer =
-      Timer::addTimer(returnRecord.timer.timeMicroseconds,
-                      forwardRecords[forwardRecords.size() - 1].accumTimer);
+  returnRecord.accumTimer = Timer::addTimer(returnRecord.timer.timeMicroseconds,
+                                            forwardRecords[forwardRecords.size() - 1].accumTimer);
 
   returnRecord.totalRuntime =
-      forwardRecords[forwardRecords.size() - 1].totalRuntime +
-      returnRecord.timer.totalMicroseconds;
+          forwardRecords[forwardRecords.size() - 1].totalRuntime + returnRecord.timer.totalMicroseconds;
   returnRecord.x_prim = xnew_n_primitives;
   returnRecord.v_prim = vnew_n_primitives;
   returnRecord.vpre_prim = v_n_primitives;
@@ -1447,17 +1764,17 @@ void Simulation::step() {
 
   if (printOptimizationDetails) {
     double systemEnergy = evaluateSystemEnergy(v_new, x_new);
-    std::printf("stepping finished with system energy: %.8f error-energy: %.5f "
-                "totalIter: %d\n",
+    std::printf("stepping finished with system energy: %.8f error-energy: %.5f totalIter: %d\n",
                 systemEnergy, evaluateEnergy(x_new), totalIter);
 
     if (systemEnergy > 1000000.0) {
       explosionEncountered = true;
       std::printf("explosion!!!\n");
-      std::printf("norms: x:%.4f v:%.4f f:%.4f r:%.4f\n", x_new.norm(),
-                  v_new.norm(), f.norm(), r.norm());
+      std::printf("norms: x:%.4f v:%.4f f:%.4f r:%.4f\n", x_new.norm(), v_new.norm(), f.norm(), r.norm());
     }
   }
+
+
 }
 
 VecXd Simulation::solveDirect(VecXd &dL_dxnew, double t_2, SpMat &dproj_dxnew_t,
@@ -1474,33 +1791,57 @@ VecXd Simulation::solveDirect(VecXd &dL_dxnew, double t_2, SpMat &dproj_dxnew_t,
   return u_star;
 }
 
-Simulation::BackwardInformation Simulation::stepBackwardNN(
-    Simulation::BackwardTaskInformation &taskInfo, VecXd &dL_dxnew,
-    VecXd &dL_dvnew, const ForwardInformation &forwardInfo_new, bool isStart,
-    const VecXd &dL_dxinit, const VecXd &dL_dvinit) {
+Simulation::BackwardInformation
+Simulation::stepBackwardNN(Simulation::BackwardTaskInformation &taskInfo, VecXd &dL_dxnew, VecXd &dL_dvnew,
+                           const ForwardInformation &forwardInfo_new, bool isStart, const VecXd &dL_dxinit,
+                           const VecXd &dL_dvinit) {
   Simulation::BackwardInformation backwardInfoNew = backwardInfoDefault;
-  backwardInfoNew.dL_dx = dL_dxnew;
-  backwardInfoNew.dL_dv = dL_dvnew;
+  
+  double gamma = forwardInfo_new.l2_norm_factor;
+  Eigen::MatrixXd hessian = forwardInfo_new.Hessian/gamma;
+  SpMat hess_sparse = hessian.sparseView();
+  Eigen::SimplicialLLT<Eigen::SparseMatrix<double>> ipc_solver;
+  ipc_solver.compute(hess_sparse);
+  backwardInfoNew.dL_dx = ipc_solver.solve(dL_dxnew);
+  backwardInfoNew.dL_dx = backwardInfoNew.dL_dx.cwiseMin(100.0).cwiseMax(-100.0);
+  backwardInfoNew.dL_dv = ipc_solver.solve(dL_dvnew);
+  backwardInfoNew.dL_dv = backwardInfoNew.dL_dv.cwiseMin(100.0).cwiseMax(-100.0);
+  VecXd dL_dxinit_new = ipc_solver.solve(dL_dxinit); 
+  dL_dxinit_new = dL_dxinit_new.cwiseMin(100.0).cwiseMax(-100.0);
+  VecXd dL_dvinit_new = ipc_solver.solve(dL_dvinit); 
+  dL_dvinit_new = dL_dvinit_new.cwiseMin(100.0).cwiseMax(-100.0);
 
-  return stepBackward(taskInfo, backwardInfoNew, forwardInfo_new, isStart,
-                      dL_dxinit, dL_dvinit);
+  if(isStart) {
+    std::cout<<"\033[32m\033[1m"<<"is start"<<"\033[0m"<<std::endl;
+  }
+  if (!(((backwardInfoNew.dL_dx.array() == backwardInfoNew.dL_dx.array())).all())) {
+    std::cout<<dL_dxnew.maxCoeff()<<std::endl;
+    std::cout<<hessian.maxCoeff()<<std::endl;
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(hessian);
+    std::cout<<svd.rank()<<std::endl;
+    std::cout<<particles.size()*3<<std::endl;
+    std::cout<<"\033[32m\033[1m"<<"backward has NAN"<<"\033[0m"<<std::endl;
+  }
+  if (!(((hessian.array() == hessian.array())).all())) {
+    std::cout<<"\033[32m\033[1m"<<"hessian has NAN"<<"\033[0m"<<std::endl;
+  }
+  if (!(((dL_dxnew.array() == dL_dxnew.array())).all())) {
+    std::cout<<"\033[32m\033[1m"<<"dL_dxnew has NAN"<<"\033[0m"<<std::endl;
+  }
+
+  return stepBackward(taskInfo, backwardInfoNew, forwardInfo_new, isStart, dL_dxinit_new, dL_dvinit_new);
 }
 
 Simulation::BackwardInformation
-Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
-                         Simulation::BackwardInformation &gradient_new,
+Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo, Simulation::BackwardInformation &gradient_new,
                          const ForwardInformation &forwardInfo_new,
-                         bool isStart, const VecXd &dL_dxinit,
-                         const VecXd &dL_dvinit) {
+                         bool isStart, const VecXd &dL_dxinit, const VecXd &dL_dvinit) {
 
   if (gradientClipping) {
     double dL_dx_maxnorm = gradientClippingThreshold;
-    if (gradient_new.dL_dx.norm() > dL_dx_maxnorm * particles.size()) {
-      //      Logging::logColor("gradient clipped at " +
-      //      std::to_string(forwardInfo_new.stepIdx) + ": norm " +
-      //      d2str(gradient_new.dL_dx.norm(), 4), Logging::MAGENTA);
-      gradient_new.dL_dx = gradient_new.dL_dx * dL_dx_maxnorm *
-                           particles.size() / gradient_new.dL_dx.norm();
+    if ( gradient_new.dL_dx.norm() > dL_dx_maxnorm * particles.size()) {
+//      Logging::logColor("gradient clipped at " + std::to_string(forwardInfo_new.stepIdx) + ": norm " + d2str(gradient_new.dL_dx.norm(), 4), Logging::MAGENTA);
+      gradient_new.dL_dx = gradient_new.dL_dx  * dL_dx_maxnorm * particles.size() / gradient_new.dL_dx.norm();
     }
   }
   int TOTAL_DOF = particles.size() * 3;
@@ -1508,8 +1849,16 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
   int backwardIdx = forwardRecords.size() - forwardInfo_new.stepIdx;
 
   VecXd dL_dx(TOTAL_DOF), dL_dv(TOTAL_DOF);
-  VecXd x_new = forwardInfo_new.x;
-  VecXd v_new = forwardInfo_new.v;
+  bool isIPC = true;
+  VecXd x_new;
+  VecXd v_new;
+  if (isIPC) {
+    x_new = forwardInfo_new.x_pd;
+    v_new = forwardInfo_new.v_pd;
+  } else {
+    x_new = forwardInfo_new.x;
+    v_new = forwardInfo_new.v;
+  }
   VecXd f_new = forwardInfo_new.f;
   VecXd &dL_dxnew = gradient_new.dL_dx;
   VecXd &dL_dvnew = gradient_new.dL_dv;
@@ -1527,9 +1876,9 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
   dL_dv = dL_dvinit;
   BackwardInformation ret = backwardInfoDefault;
   SpMat dr_df_plusI(3 * particles.size(), 3 * particles.size()),
-      dr_df_plusI_t(3 * particles.size(), 3 * particles.size()),
-      dr_df(3 * particles.size(), 3 * particles.size()),
-      dr_df_t(3 * particles.size(), 3 * particles.size());
+          dr_df_plusI_t(3 * particles.size(), 3 * particles.size()),
+          dr_df(3 * particles.size(), 3 * particles.size()),
+          dr_df_t(3 * particles.size(), 3 * particles.size());
   dr_df_plusI.setIdentity();
   dr_df_plusI_t.setIdentity();
   dr_df.setZero();
@@ -1548,14 +1897,16 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
 
   if (contactEnabled) {
     bool calculatePrimitiveGradient = false;
-    std::pair<std::pair<SpMat, SpMat>, VecXd> drall_dfall = calculatedr_df(
-        forwardInfo_new.collisionInfos, calculatePrimitiveGradient,
-        taskInfo.dL_density && taskInfo.adddr_dd);
+    std::pair<std::pair<SpMat, SpMat>, VecXd> drall_dfall = calculatedr_df(forwardInfo_new.collisionInfos,
+                                                                           calculatePrimitiveGradient,
+                                                                           taskInfo.dL_density &&
+                                                                           taskInfo.adddr_dd);
     dr_df = drall_dfall.first.first;
     dr_df_t = dr_df.transpose();
     dr_dd = drall_dfall.second;
     dr_df_plusI += dr_df;
     dr_df_plusI_t = dr_df_plusI.transpose();
+
   }
 
   timeSteptimer.toc();
@@ -1566,8 +1917,9 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
 
     timeSteptimer.tic("PD init");
 
+
     // step1: dl/dx add dL/vnew * dvnew/dx yellow
-    dL_dx += dL_dvnew * (-1.0 / sceneConfig.timeStep); // yellow
+    dL_dx += dL_dvnew * (-1.0 / sceneConfig.timeStep); //yellow
     dproj_dxnew = SpMat(currentSysMat.constraintNum, 3 * particles.size());
     dproj_dxnew.setZero();
     TripleVector triplets;
@@ -1587,10 +1939,10 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
     dproj_dxnew_t = dproj_dxnew.transpose();
 
     timeSteptimer.toc();
-    ret.rho =
-        0; // (P_inv * delta_P).toDense().eigenvalues().cwiseAbs().maxCoeff();
+    ret.rho = 0; // (P_inv * delta_P).toDense().eigenvalues().cwiseAbs().maxCoeff();
 
     // solve
+
 
     {
       timeSteptimer.tic("delta_P_T");
@@ -1599,29 +1951,25 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
       timeSteptimer.toc();
 
       if (backwardGradientForceDirectSolver) {
-        u_star = solveDirect(dL_dxnew, t_2, dproj_dxnew_t, currentSysMat,
-                             dr_df_plusI_t, dr_df_t);
+        u_star = solveDirect(dL_dxnew, t_2, dproj_dxnew_t, currentSysMat, dr_df_plusI_t, dr_df_t);
       } else {
         timeSteptimer.tic("solveIterative");
         for (int iterIdx = 0; iterIdx < MAX_ITER_NUM; iterIdx++) {
           // step1: dl/dx add dL/dxnew * dxnew/dx
           VecXd dr_df_t_x_u_star_prev = dr_df_t * u_star_prev;
 
-          VecXd deltaU =
-              t_2 * dproj_dxnew_t *
-                  (currentSysMat.A * (dr_df_t_x_u_star_prev + u_star_prev)) -
-              currentSysMat.C_t * dr_df_t_x_u_star_prev;
+          VecXd deltaU = t_2 * dproj_dxnew_t *
+                         (currentSysMat.A * (dr_df_t_x_u_star_prev + u_star_prev)) -
+                         currentSysMat.C_t * dr_df_t_x_u_star_prev;
           VecXd rhs = dL_dxnew + deltaU;
           u_star = currentSysMat.solver.solve(rhs);
-          bool converged = (std::abs((u_star - u_star_prev).norm() /
-                                     (particles.size() * 1.0))) <
-                           backwardConvergenceThreshold;
+          bool converged =
+                  (std::abs((u_star - u_star_prev).norm() / (particles.size() * 1.0))) < backwardConvergenceThreshold;
           bool isLastIter = (iterIdx + 1 == MAX_ITER_NUM);
           if (converged || isLastIter) {
             timeSteptimer.toc(); // solveIterative
             ret.backwardIters = iterIdx + 1;
-            ret.backwardTotalIters =
-                ret.backwardIters + gradient_new.backwardTotalIters;
+            ret.backwardTotalIters = ret.backwardIters + gradient_new.backwardTotalIters;
             ret.convergedAccum = gradient_new.convergedAccum;
             if (converged) {
               ret.converged = true;
@@ -1630,8 +1978,7 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
               ret.converged = false;
               timeSteptimer.toc();
               // direct solve
-              u_star = solveDirect(dL_dxnew, t_2, dproj_dxnew_t, currentSysMat,
-                                   dr_df_plusI_t, dr_df_t);
+              u_star = solveDirect(dL_dxnew, t_2, dproj_dxnew_t, currentSysMat, dr_df_plusI_t, dr_df_t);
             }
             break;
           }
@@ -1639,7 +1986,11 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
           u_star_prev = u_star;
         }
       }
+
     }
+
+
+
 
     // step2: red
     dL_dx += M * u_star;
@@ -1651,54 +2002,54 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
     if (!isStart) {
       dL_dx += dL_dv * 1.0 / sceneConfig.timeStep;
     }
+
   }
+
 
   timeSteptimer.tic("gradients");
   if (taskInfo.dL_dmu) {
     bool bruteCalc = true;
-    std::vector<VecXd> dr_dmu = calculatedr_dmu(
-        forwardInfo_new.collisionInfos.first.first, taskInfo.mu_primitives);
+    std::vector<VecXd> dr_dmu = calculatedr_dmu(forwardInfo_new.collisionInfos.first.first,
+                                                taskInfo.mu_primitives);
     for (int i = 0; i < taskInfo.mu_primitives.size(); i++) {
       double dL_dmui = dr_dmu[i].transpose() * sceneConfig.timeStep * u_star;
-      dL_dmu.emplace_back(gradient_new.dL_dmu[i].first,
-                          dL_dmui + gradient_new.dL_dmu[i].second);
+      dL_dmu.emplace_back(gradient_new.dL_dmu[i].first, dL_dmui + gradient_new.dL_dmu[i].second);
     }
     ret.dL_dmu = dL_dmu;
+
   }
 
-  // spline parameters
+  //spline parameters
   ret.dL_dsplines = gradient_new.dL_dsplines;
   ret.dL_dxfixed = forwardInfo_new.x_fixedpoints;
   ret.dL_dxfixed_accum = forwardInfo_new.x_fixedpoints;
   ret.dL_dxfixed.setZero();
   ret.dL_dxfixed_accum.setZero();
 
-  if (taskInfo.dL_dcontrolPoints &&
-      (!currentSysMat.controlPointSplines.empty())) {
+
+  if (taskInfo.dL_dcontrolPoints && (!currentSysMat.controlPointSplines.empty())) {
     int sysMatId = forwardInfo_new.sysMatId;
     // 3m x s
-    SpMat rhs_xfixed = sceneConfig.timeStep * sceneConfig.timeStep *
-                       dr_df_plusI * sysMat[sysMatId].A_t_dp_dxfixed; // 3m x s
+    SpMat rhs_xfixed = sceneConfig.timeStep * sceneConfig.timeStep * dr_df_plusI * sysMat[sysMatId].A_t_dp_dxfixed; // 3m x s
     ret.dL_dxfixed = rhs_xfixed.transpose() * u_star;
     perStepGradient.emplace_back(ret.dL_dxfixed);
     if (forwardInfo_new.stepIdx == 1) {
       std::reverse(perStepGradient.begin(), perStepGradient.end());
     }
 
-    if (gradient_new.dL_dxfixed_accum.rows() == ret.dL_dxfixed_accum.rows()) {
+
+
+    if (gradient_new.dL_dxfixed_accum.rows() == ret.dL_dxfixed_accum.rows() ) {
       ret.dL_dxfixed_accum = ret.dL_dxfixed + gradient_new.dL_dxfixed_accum;
+
     }
-    for (int splineIdx = 0;
-         splineIdx < sysMat[sysMatId].controlPointSplines.size(); splineIdx++) {
+    for (int splineIdx = 0; splineIdx < sysMat[sysMatId].controlPointSplines.size(); splineIdx++) {
       Spline &s = sysMat[sysMatId].controlPointSplines[splineIdx];
-      MatXd dxfixed_dspline =
-          s.dxfixed_dcontrolPoints(forwardInfo_new.simDurartionFraction);
+      MatXd dxfixed_dspline = s.dxfixed_dcontrolPoints(forwardInfo_new.simDurartionFraction);
       SpMat dxfixed_dspline_sparse = dxfixed_dspline.sparseView().pruned();
-      SpMat rhs_spline =
-          sceneConfig.timeStep * sceneConfig.timeStep * dr_df_plusI *
-          (sysMat[sysMatId].A_t_dp_dxfixed.block(0, s.pFixed * 3,
-                                                 3 * particles.size(), 3) *
-           dxfixed_dspline_sparse); // 3m x s
+      SpMat rhs_spline = sceneConfig.timeStep * sceneConfig.timeStep * dr_df_plusI *
+              (sysMat[sysMatId].A_t_dp_dxfixed.block(0, s.pFixed * 3, 3 * particles.size(), 3) *
+                         dxfixed_dspline_sparse); // 3m x s
       rhs_spline = rhs_spline.pruned();
       VecXd deltaGrad = rhs_spline.transpose() * u_star;
 
@@ -1707,42 +2058,37 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
   }
 
   if (taskInfo.dL_density) {
-    VecXd dMy_dd =
-        Area * (forwardInfo_new.x_prev +
-                sceneConfig.timeStep * forwardInfo_new.v_prev +
-                sceneConfig.timeStep * sceneConfig.timeStep * gravity_n);
-    VecXd df_dd =
-        Area * (forwardInfo_new.v_prev + sceneConfig.timeStep * gravity_n);
-    VecXd rhs = dMy_dd + sceneConfig.timeStep * dr_df * df_dd -
-                Area * forwardInfo_new.x + sceneConfig.timeStep * dr_dd;
+    VecXd dMy_dd = Area * (forwardInfo_new.x_prev + sceneConfig.timeStep * forwardInfo_new.v_prev +
+                           sceneConfig.timeStep * sceneConfig.timeStep * gravity_n);
+    VecXd df_dd = Area * (forwardInfo_new.v_prev + sceneConfig.timeStep * gravity_n);
+    VecXd rhs = dMy_dd + sceneConfig.timeStep * dr_df * df_dd - Area * forwardInfo_new.x +
+                sceneConfig.timeStep * dr_dd;
     ret.dL_ddensity = gradient_new.dL_ddensity + u_star.dot(rhs);
   }
 
   for (int i = 0; i < Constraint::CONSTRAINT_NUM; i++) {
 
     if (taskInfo.dL_dk_pertype[i]) {
-      VecXd dA_t_times_p_dk = forwardInfo_new.At_p_weightless_pertype[i];
-      VecXd A_t_A_weightless_times_xnew =
-          currentSysMat.A_t_times_A_pertype[i] * x_new;
-      VecXd df_dk = sceneConfig.timeStep * dA_t_times_p_dk -
-                    sceneConfig.timeStep * A_t_A_weightless_times_xnew;
+        VecXd dA_t_times_p_dk = forwardInfo_new.At_p_weightless_pertype[i];
+        VecXd A_t_A_weightless_times_xnew = currentSysMat.A_t_times_A_pertype[i] * x_new;
+        VecXd df_dk = sceneConfig.timeStep * dA_t_times_p_dk - sceneConfig.timeStep * A_t_A_weightless_times_xnew;
 
-      VecXd rhs =
-          sceneConfig.timeStep * sceneConfig.timeStep * dA_t_times_p_dk +
-          sceneConfig.timeStep * dr_df * df_dk -
-          sceneConfig.timeStep * sceneConfig.timeStep *
-              A_t_A_weightless_times_xnew;
-      double dL_dk_new = u_star.dot(rhs);
+        VecXd rhs = sceneConfig.timeStep * sceneConfig.timeStep * dA_t_times_p_dk +
+                    sceneConfig.timeStep * dr_df * df_dk -
+                    sceneConfig.timeStep * sceneConfig.timeStep * A_t_A_weightless_times_xnew;
+        double dL_dk_new = u_star.dot(rhs);
 
-      VecXd dL_dk_perelem = u_star.cwiseProduct(rhs);
+        VecXd dL_dk_perelem = u_star.cwiseProduct(rhs);
 
-      ret.dL_dk_pertype[i] = gradient_new.dL_dk_pertype[i] + dL_dk_new;
+        ret.dL_dk_pertype[i] = gradient_new.dL_dk_pertype[i] + dL_dk_new;
+
+
     }
   }
 
+
   if (taskInfo.dL_dfext) {
-    dL_dfext_vec = sceneConfig.timeStep * sceneConfig.timeStep *
-                   dr_df_plusI.transpose() * u_star *
+    dL_dfext_vec = sceneConfig.timeStep * sceneConfig.timeStep * dr_df_plusI.transpose() * u_star *
                    forwardInfo_new.windFactor;
     ret.dL_dfext = gradient_new.dL_dfext;
     for (int i = 0; i < particles.size(); i++) {
@@ -1754,41 +2100,36 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
     }
   }
 
+
   if (taskInfo.dL_dconstantForceField) {
-    ret.dL_dconstantForceField = gradient_new.dL_dconstantForceField +
-                                 sceneConfig.timeStep * sceneConfig.timeStep *
-                                     dr_df_plusI.transpose() * u_star;
+    ret.dL_dconstantForceField = gradient_new.dL_dconstantForceField +  sceneConfig.timeStep * sceneConfig.timeStep * dr_df_plusI.transpose() * u_star;
+
+
   }
 
   if (taskInfo.dL_dwindFactor) {
-    dL_dfext_vec = sceneConfig.timeStep * sceneConfig.timeStep *
-                   dr_df_plusI.transpose() * u_star;
+    dL_dfext_vec = sceneConfig.timeStep * sceneConfig.timeStep * dr_df_plusI.transpose() * u_star;
     ret.dL_dwindtimestep = gradient_new.dL_dwindtimestep;
     ret.dL_dwindtimestep[forwardInfo_new.stepIdx] = 0;
     for (int i = 0; i < particles.size(); i++) {
-      ret.dL_dwindtimestep[forwardInfo_new.stepIdx] +=
-          dL_dfext_vec.segment(i * 3, 3).dot(
+      ret.dL_dwindtimestep[forwardInfo_new.stepIdx] += dL_dfext_vec.segment(i * 3, 3).dot(
               (wind * windNorm).cwiseProduct(windFallOff.segment(i * 3, 3)));
     }
   }
 
   if (taskInfo.dL_dfwind) {
-    if ((sceneConfig.windConfig != WindConfig::WIND_SIN) &&
+     if ((sceneConfig.windConfig != WindConfig::WIND_SIN) &&
         (sceneConfig.windConfig != WindConfig::WIND_SIN_AND_FALLOFF))
-      std::printf("WARNING: Calculating gradient for sin wind model but config "
-                  "is not sin wind!\n");
+      std::printf("WARNING: Calculating gradient for sin wind model but config is not sin wind!\n");
 
-    dL_dfext_vec = sceneConfig.timeStep * sceneConfig.timeStep *
-                   dr_df_plusI.transpose() * u_star;
+    dL_dfext_vec = sceneConfig.timeStep * sceneConfig.timeStep * dr_df_plusI.transpose() * u_star;
     ret.dL_dwind = gradient_new.dL_dwind;
     Mat3x5d dfext_dwind;
     dfext_dwind.setZero();
-    dfext_dwind.block<3, 3>(0, 0) =
-        Mat3x3d::Identity() * forwardInfo_new.windFactor;
-    Vec3d windForce = forwardInfo_new.windParams.segment(0, 3);
-    double cos_atplusb =
-        std::cos(forwardInfo_new.windParams[3] * forwardInfo_new.t +
-                 forwardInfo_new.windParams[4]);
+    dfext_dwind.block<3, 3>(0, 0) = Mat3x3d::Identity() * forwardInfo_new.windFactor;
+     Vec3d windForce = forwardInfo_new.windParams.segment(0, 3);
+    double cos_atplusb = std::cos(
+            forwardInfo_new.windParams[3] * forwardInfo_new.t + forwardInfo_new.windParams[4]);
     dfext_dwind.col(3) = windForce * cos_atplusb * 0.5 * forwardInfo_new.t;
     dfext_dwind.col(4) = windForce * cos_atplusb * 0.5;
     Mat5x3d dfext_dwind_T = dfext_dwind.transpose();
@@ -1797,29 +2138,31 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo,
     dL_dfext_total.setZero();
     for (int i = 0; i < particles.size(); i++) {
       if (sceneConfig.windConfig == WindConfig::WIND_SIN_AND_FALLOFF) {
-        dL_dfext_total += dL_dfext_vec.segment(i * 3, 3).cwiseProduct(
-            windFallOff.segment(i * 3, 3));
+        dL_dfext_total += dL_dfext_vec.segment(i * 3, 3).cwiseProduct(windFallOff.segment(i * 3, 3));
       } else {
         dL_dfext_total += dL_dfext_vec.segment(i * 3, 3);
+
       }
     }
-    Vec5d dL_dwind = dfext_dwind_T * dL_dfext_total;
+      Vec5d dL_dwind = dfext_dwind_T * dL_dfext_total;
 
-    ret.dL_dwind += dL_dwind;
+      ret.dL_dwind += dL_dwind;
+
+
   }
 
   timeSteptimer.toc(); // gradients
   timeSteptimer.ticEnd();
   ret.timer = timeSteptimer.getReportMicroseconds();
-  ret.accumSolvePerformanceReport = Timer::addPerf(
-      ret.timer.solvePerfReport, gradient_new.accumSolvePerformanceReport);
-  ret.accumTimer =
-      Timer::addTimer(ret.timer.timeMicroseconds, gradient_new.accumTimer);
+  ret.accumSolvePerformanceReport = Timer::addPerf(ret.timer.solvePerfReport,
+                                                   gradient_new.accumSolvePerformanceReport);
+  ret.accumTimer = Timer::addTimer(ret.timer.timeMicroseconds, gradient_new.accumTimer);
   ret.totalRuntime = gradient_new.totalRuntime + ret.timer.totalMicroseconds;
 
   ret.dL_dx = dL_dx;
   ret.dL_dv = dL_dv;
   ret.loss = gradient_new.loss;
+
 
   return ret;
 }
