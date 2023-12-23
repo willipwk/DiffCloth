@@ -12,9 +12,37 @@ def render_thread(perturb_fn: str, urdf_fn: str, obj_fn: str, render_mode: str):
 
 if __name__ == "__main__":
     render_mode = "DIRECT"
-    perturbed_obj_files = glob.glob("output/025/episode[3-6]/*/tie_final_*.obj")
+    obj_files = [
+        "output/action/025/episode1/results185/*.obj",
+        # "output/025/episode2/results409/*.obj",
+        # "output/025/episode3/results729/*.obj",
+        # "output/025/episode4/results1073/*.obj",
+        # "output/025/episode5/results1257/*.obj",
+        # "output/025/episode6/results1577/*.obj",
+        # "output/026/episode1/results097/*.obj",
+        # "output/026/episode1/results175/*.obj",
+        # "output/026/episode2/results301/*.obj",
+        # "output/026/episode2/results421/*.obj",
+        # "output/026/episode4/results919/*.obj",
+        # "output/026/episode4/results1231/*.obj",
+        # "output/026/episode5/results1531/*.obj",
+        # "output/026/episode5/results1651/*.obj",
+        # "output/026/episode6/results1891/*.obj",
+        # "output/026/episode7/results2341/*.obj",
+        # "output/026/episode4/results997/*.obj",
+        # "output/026/episode4/results1177/*.obj",
+        # "output/026/episode4/results1273/*.obj",
+        # "output/026/episode4/results1339/*.obj",
+        # "output/026/episode5/results1711/*.obj",
+        # "output/026/episode6/results2185/*.obj",
+        # "output/026/episode7/results2395/*.obj",
+    ]
+    perturbed_obj_files = []
+    for obj in obj_files:
+        perturbed_obj_files += glob.glob(obj)
+    perturbed_obj_files.sort()
     cpu_per_proc = 2
-    total_cpu = os.cpu_count()
+    total_cpu = 16
     n_thread = int(total_cpu / cpu_per_proc)
     i = 0
     start_time = time.time()

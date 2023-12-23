@@ -3,6 +3,7 @@ import open3d as o3d
 import numpy as np
 import pybullet as p
 import pybullet_data
+import torch
 from scipy.spatial.transform import Rotation as R
 from tulip.utils.gl_utils import build_projection_matrix, build_view_matrix
 from tulip.utils.image_utils import vis_depth, vis_rgb, vis_seg_indices, depth2xyz
@@ -20,7 +21,7 @@ from tulip.utils.transform_utils import homogeneous_transform
 from tulip.utils.transform_utils import pos_quat2pose_matrix, homogeneous_transform
 # from file_utils import *
 import matplotlib.pyplot as plt
-# import cv2
+import cv2
 # import torch
 import os
 import shutil
@@ -52,9 +53,9 @@ def gen_urdf(urdf_filename, robotname, mesh_filename, scale, colorname, rgba):
     f.write('    <geometry>\n')
     f.write('        <mesh filename="{}" scale="{} {} {}"/>\n'.format(mesh_filename, scale, scale, scale))
     f.write('    </geometry>\n')
-    f.write('    <material name="{}">\n'.format(colorname))
-    f.write('        <color rgba="{} {} {} {}"/>\n'.format(rgba[0], rgba[1], rgba[2], rgba[3]))
-    f.write('    </material>\n')
+    # f.write('    <material name="{}">\n'.format(colorname))
+    # f.write('        <color rgba="{} {} {} {}"/>\n'.format(rgba[0], rgba[1], rgba[2], rgba[3]))
+    # f.write('    </material>\n')
     f.write('    </visual>\n')
     f.write('    <collision>\n')
     f.write('    <origin rpy="0 0 0" xyz="0 0 0"/>\n')
@@ -164,6 +165,27 @@ def cal_normal(vertices, faces, pcl):
     d, fi, bc = pcu.closest_points_on_mesh(pcl.reshape(pcl.shape[0] * pcl.shape[1], pcl.shape[2]), vertices, faces)
     normal = n[fi]
     return normal
+
+
+def cal_midline(vertices, faces, pcl):
+    normal_midline = vertices[1:358] - vertices[7:364]
+    endline_midline1 = vertices[1:4] - vertices[4:7]
+    endline_midline2 = vertices[358:361] - vertices[361:364]
+    endpoint_midline1 = vertices[[0]] - vertices[[2]]
+    endpoint_midline2 = vertices[[362]] - vertices[[364]]
+    midline = np.vstack([endpoint_midline1, endline_midline1, normal_midline, endline_midline2, endpoint_midline2])
+    midline = midline / np.linalg.norm(midline, axis=1, keepdims=True)
+    pcl_torch = torch.from_numpy(pcl)
+    vertices_torch = torch.from_numpy(vertices)
+    # print(vertices_torch.shape)
+    # print(pcl_torch.shape)
+    pcl_torch = torch.reshape(pcl_torch, (pcl_torch.shape[0] * pcl_torch.shape[1], pcl_torch.shape[2]))
+    shortest_dist = torch.cdist(pcl_torch, vertices_torch)
+    pcd_assign = torch.argmin(shortest_dist, dim=1).tolist()
+    # print(pcd_assign)
+    pcl_midline = midline[pcd_assign]
+    return pcl_midline
+
 
 def render_one_tie( input_dir,
                     filename,
@@ -299,6 +321,16 @@ def render_one_tie( input_dir,
     cy = 542.8760188199577
     far = 10
     near = 0.01
+
+    # # realsense intrinsic related
+    # width = 640
+    # height = 480
+    # fx = 591.3717816
+    # fy = 591.02108727
+    # cx = 351.53348131
+    # cy = 269.61042636
+    # far = 10
+    # near = 0.01
     proj_matrix = build_projection_matrix(
         width, height, fx, fy, cx, cy, near, far
     )
@@ -335,22 +367,28 @@ def render_one_tie( input_dir,
 
     normal = cal_normal(vertices, faces, xyz_image)
     normal = np.reshape(normal, (xyz_image.shape[0], xyz_image.shape[1], xyz_image.shape[2]))
-    full_pcd = np.dstack([xyz_image, vis_rgb / 255, normal])
-    full_pcd = np.reshape(full_pcd, (full_pcd.shape[0] * full_pcd.shape[1], full_pcd.shape[2]))
-    full_pcd = full_pcd[valid_index]
-    np.random.shuffle(full_pcd)
+    midline = cal_midline(vertices, faces, xyz_image)
+    midline = np.reshape(midline, (xyz_image.shape[0], xyz_image.shape[1], xyz_image.shape[2]))
+    full_pcd_normal = np.dstack([xyz_image, vis_rgb / 255, normal])
+    full_pcd_normal = np.reshape(full_pcd_normal, (full_pcd_normal.shape[0] * full_pcd_normal.shape[1], full_pcd_normal.shape[2]))
+    # np.save(f"{output_dir}result{result_id}_full.npy", full_pcd)
+    full_pcd_normal = full_pcd_normal[valid_index]
+    np.random.shuffle(full_pcd_normal)
 
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(full_pcd[:, :3])
-    pcd.colors = o3d.utility.Vector3dVector(full_pcd[:, 3:6])
-    pcd.normals = o3d.utility.Vector3dVector(full_pcd[:, 6:])
-    n_points = len(pcd.points)
+    pcd_normal = o3d.geometry.PointCloud()
+    pcd_normal.points = o3d.utility.Vector3dVector(full_pcd_normal[:, :3])
+    pcd_normal.colors = o3d.utility.Vector3dVector(full_pcd_normal[:, 3:6])
+    pcd_normal.normals = o3d.utility.Vector3dVector(full_pcd_normal[:, 6:])
+    n_points_normal = len(pcd_normal.points)
     downsample_size = 4096
-    every_k_points = int(np.floor(n_points / downsample_size))
-    dsmp_pcd = pcd.uniform_down_sample(every_k_points)
+    every_k_points_normal = int(np.floor(n_points_normal / downsample_size))
+    dsmp_pcd_normal = pcd_normal.uniform_down_sample(every_k_points_normal)
     # o3d.visualization.draw_geometries([dsmp_pcd], window_name="example", point_show_normal=True)
     # dsmp_pcd.paint_uniform_color([0, 1, 0])
-    o3d.io.write_point_cloud(f"{output_dir}result{result_id}.ply", dsmp_pcd)
+    o3d.io.write_point_cloud(f"{output_dir}result{result_id}_normal.ply", dsmp_pcd_normal)
+    # vis_rgb = cv2.cvtColor(vis_rgb, cv2.COLOR_BGR2RGB)
+    # cv2.imwrite(f"{output_dir}result{result_id}.png", vis_rgb)
+    # np.save(f"{output_dir}result{result_id}.npy", mask)
     # o3d.io.write_point_cloud(f"result.ply", dsmp_pcd)
 
     if mode == 'GUI':
@@ -373,7 +411,7 @@ if __name__ == "__main__":
         data_mode = "test"
     output_dir = "../pointnet2_keypoint_prediction/datasets/normal/" + key_root_path + "/" + data_mode + "/"
     front_texture_path =  "./big_108.png"
-    back_texture_path = "./big_107.png"
+    back_texture_path = "./big_108.png"
 
     tie_color1 = [100 / 255, 151 / 255, 202 / 255, 1]   # texture会叠加原来的颜色
     tie_color2 = [255 / 255, 255 / 255, 255 / 255, 1]

@@ -24,4 +24,9 @@ render_tmp_*
 output/
 tie/tie[0-9]*.obj
 tie/tie[0-9]*.urdf
+bread
 src/assets/meshes/remeshed/025
+src/assets/meshes/remeshed/026
+src/assets/meshes/remeshed/sim_fitting
+/sim_fitting_data
+*.png

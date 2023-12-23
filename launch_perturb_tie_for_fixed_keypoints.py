@@ -28,17 +28,29 @@ def perturb_thread(obj_fn: str, i: int, seed: int, n_openmp_thread: int):
     # print(cmd)
     os.system(cmd)
 
-    if not os.path.isfile(f"output/{out_fn}"):
+    if not os.path.isfile(f"output/action/{out_fn}"):
         print(f"[Warning]: failed to generate {out_fn}")
     else:
-        os.system(f"rm output/{out_fn.replace('.obj', '.txt')}")
+        os.system(f"rm output/action/{out_fn.replace('.obj', '.txt')}")
 
 
 if __name__ == "__main__":
 
-    obj_files = glob.glob(
-        "src/assets/meshes/remeshed/025/episode[3-6]/*/tie_final.obj"
-    )
+    obj_files = [
+        "src/assets/meshes/remeshed/025/episode1/results185/tie_final.obj",
+        # "src/assets/meshes/remeshed/025/episode2/results409/tie_final.obj",
+        # "src/assets/meshes/remeshed/025/episode3/results729/tie_final.obj",
+        # "src/assets/meshes/remeshed/025/episode4/results1073/tie_final.obj",
+        # "src/assets/meshes/remeshed/025/episode5/results1257/tie_final.obj",
+        # "src/assets/meshes/remeshed/025/episode6/results1577/tie_final.obj",
+        # "src/assets/meshes/remeshed/026/episode4/results997/tie_final.obj",
+        # "src/assets/meshes/remeshed/026/episode4/results1177/tie_final.obj",
+        # "src/assets/meshes/remeshed/026/episode4/results1273/tie_final.obj",
+        # "src/assets/meshes/remeshed/026/episode4/results1339/tie_final.obj",
+        # "src/assets/meshes/remeshed/026/episode5/results1711/tie_final.obj",
+        # "src/assets/meshes/remeshed/026/episode6/results2185/tie_final.obj",
+        # "src/assets/meshes/remeshed/026/episode7/results2395/tie_final.obj",
+    ]
     # obj_files += glob.glob(
     #   "src/assets/meshes/remeshed/tie_data/episode5/*/*.obj"
     # )
@@ -46,14 +58,14 @@ if __name__ == "__main__":
 
     n_output = 500
     cpu_per_proc = 2
-    total_cpu = os.cpu_count()
+    total_cpu = 16
     n_thread = int(total_cpu / cpu_per_proc)
     executed_files = []
     for start_idx in range(len(obj_files)):
         i = 0
         obj_start_idx = 0
         obj_fn = obj_files[start_idx]
-        out_folder = "output" + obj_fn[obj_fn.find("remeshed") + len("remeshed"):obj_fn.rfind("/") + 1]
+        out_folder = "output/action" + obj_fn[obj_fn.find("remeshed") + len("remeshed"):obj_fn.rfind("/") + 1]
         while i < n_output:
             threads = []
             for thread_idx in range(min(n_output - i, n_thread)):
@@ -83,7 +95,7 @@ if __name__ == "__main__":
                 t.join()
             obj_start_idx += min(n_output - i, n_thread)
             perturbed_obj = glob.glob(
-                                "output/025/episode[3-6]/*/tie_final_*.obj"
+                                "output/action" + obj_fn[obj_fn.find("remeshed") + len("remeshed"):obj_fn.rfind("/") + 1] + "*.obj"
                             )
             i = len(perturbed_obj)
             print("=" * 50, start_idx, i)

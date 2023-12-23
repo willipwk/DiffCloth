@@ -35,7 +35,27 @@ def load_obj_and_process(source_filename, dest_filename):        # single side m
     return verts, faces
 
 
-perturbed_obj_files = glob.glob("output/026/episode3/*/tie_final_*.obj")
+obj_files = [
+        "output/025/episode1/results185/*.obj",
+        # "output/025/episode2/results409/*.obj",
+        # "output/025/episode3/results729/*.obj",
+        # "output/025/episode4/results1073/*.obj",
+        # "output/025/episode5/results1257/*.obj",
+        # "output/025/episode6/results1577/*.obj",
+        # "output/026/episode1/results097/*.obj",
+        # "output/026/episode1/results175/*.obj",
+        # "output/026/episode2/results301/*.obj",
+        # "output/026/episode2/results421/*.obj",
+        # "output/026/episode4/results919/*.obj",
+        # "output/026/episode4/results1231/*.obj",
+        # "output/026/episode5/results1531/*.obj",
+        # "output/026/episode5/results1651/*.obj",
+        # "output/026/episode6/results1891/*.obj",
+        # "output/026/episode7/results2341/*.obj",
+    ]
+perturbed_obj_files = []
+for obj in obj_files:
+    perturbed_obj_files += glob.glob(obj)
 count = 0
 for filename in perturbed_obj_files:
     print(count)

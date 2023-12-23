@@ -25,8 +25,45 @@ parser.add_argument("-att_idx", type=int, default=-1)
 parser.add_argument("-n_openmp_thread", type=int, default=4)
 parser.add_argument("-seed", type=int, default=8824325)
 parser.add_argument("-r", dest="render", action="store_true", default=False)
-parser.add_argument("-s", dest="save", action="store_true", default=True)
+parser.add_argument("-s", dest="save", action="store_true", default=False)
 args = parser.parse_args()
+
+
+def cross_product(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        a_hat = torch.Tensor([[0, -a[2], a[1]], [a[2], 0, -a[0]], [-a[1], a[0], 0]])
+        return a_hat @ b
+
+
+def compute_normal(position: torch.Tensor) -> torch.Tensor:
+    faces = [
+        [1, 2, 0],
+        [1, 0, 4],
+        [4, 0, 6],
+        [2, 3, 0],
+        [3, 5, 0],
+        [0, 5, 6],
+    ]
+    normal = torch.zeros((6, 3))
+    for i in range(len(faces)):
+        face = faces[i]
+        pos = position[face]
+        norm = cross_product(pos[1] - pos[0], pos[2] - pos[0])
+        normal[i] = norm
+    normal = torch.sum(normal, dim=0)
+    normal = normal / torch.norm(normal)
+    return normal
+
+
+def compute_local_rot(position: torch.Tensor) -> torch.Tensor:
+    z_axis = compute_normal(position)
+    x_axis = position[2] - position[6]
+    x_axis = x_axis / torch.norm(x_axis)
+    y_axis = cross_product(z_axis, x_axis)
+    y_axis = y_axis / torch.norm(y_axis)
+    x_axis = cross_product(y_axis, z_axis)
+    x_axis = x_axis / torch.norm(x_axis)
+    local_rot = torch.vstack([x_axis, y_axis, z_axis])
+    return local_rot
 
 
 def get_state(sim: diffcloth.Simulation, to_tensor: bool = False) -> tuple:
@@ -83,7 +120,7 @@ def perturb(args):
     x_t, v_t, a_t = get_state(sim, to_tensor=True)
     steps = sim.sceneConfig.stepNum
     change_thresh = 10
-    actions = 4
+    actions = 1
 
     a_control_list = []
     kp_num = a_t.shape[0] // 21
@@ -108,10 +145,11 @@ def perturb(args):
         diffcloth.render(sim, renderPosPairs=True, autoExit=True)
     # save perturbation results
     if args.save and change < change_thresh:
-        out_folder = "output/" + args.out_fn[:args.out_fn.rfind("/")]
+        out_folder = "output/action/" + args.out_fn[:args.out_fn.rfind("/")]
         os.makedirs(out_folder, exist_ok=True)
         # Export final configuration into wavefront file
-        sim.exportCurrentMeshPos(steps, args.out_fn.replace(".obj", ""))
+        print(args.out_fn)
+        sim.exportCurrentMeshPos(steps, "action/" + args.out_fn.replace(".obj", ""))
 
     del sim, pysim
 
@@ -124,7 +162,7 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
 
     assert args.out_fn.endswith(".obj"), "Please provide a valid filename."
-    if os.path.isfile(f"output/{args.out_fn}"):
+    if os.path.isfile(f"output/action/{args.out_fn}"):
         print(f"{args.out_fn} exists. Skip...")
     else:
         try:

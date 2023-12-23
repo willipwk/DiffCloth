@@ -61,7 +61,7 @@ class Render_2D:
             # add textures
             obj = bpy.data.objects[self.import_file_name[i][:-4]]
             label = self.import_file_name[i][:-4] + "_mat"
-            tex_name = "big_108.png"
+            tex_name = "big_108_new.png"
             mat = bpy.data.materials.new(label)
             mat.use_nodes = True
             if mat.node_tree:
@@ -100,16 +100,35 @@ class Render_2D:
  
 if __name__ == '__main__':
     # my_render.process(input_root_path='/home/ubuntu/chenhn/render/tie_blender/test_input/', output_root_path="/home/ubuntu/chenhn/render/tie_blender/test_output/")
-    input_dir = "./tmp_double/026/episode3/results583/"
-    output_dir = "./tmp_blender/026/episode3/results583/"
-    if os.path.exists(output_dir):
-        shutil.rmtree(output_dir, ignore_errors=True)
-    for dir in os.listdir(input_dir):
-        my_render = Render_2D()
-        print(dir)
-        input_root_path = input_dir + dir + "/"
-        output_root_path = output_dir + dir + "/"
-        os.makedirs(output_root_path)
-        my_render.process(input_root_path=input_root_path, output_root_path=output_root_path)
-        del my_render
+    obj_files = [
+        "/025/episode1/results185/",
+        # "/025/episode2/results409/",
+        # "/025/episode3/results729/",
+        # "/025/episode4/results1073/",
+        # "/025/episode5/results1257/",
+        # "/025/episode6/results1577/",
+        # "/026/episode1/results097/",
+        # "/026/episode1/results175/",
+        # "/026/episode2/results301/",
+        # "/026/episode2/results421/",
+        # "/026/episode4/results919/",
+        # "/026/episode4/results1231/",
+        # "/026/episode5/results1531/",
+        # "/026/episode5/results1651/",
+        # "/026/episode6/results1891/",
+        # "/026/episode7/results2341/",
+    ]
+    for obj in obj_files:
+        input_dir = "./tmp_double" + obj
+        output_dir = "./tmp_blender" + obj
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir, ignore_errors=True)
+        for dir in os.listdir(input_dir):
+            my_render = Render_2D()
+            print(dir)
+            input_root_path = input_dir + dir + "/"
+            output_root_path = output_dir + dir + "/"
+            os.makedirs(output_root_path)
+            my_render.process(input_root_path=input_root_path, output_root_path=output_root_path)
+            del my_render
     
