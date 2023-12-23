@@ -119,3 +119,26 @@ def forwardSimulation(
         x_i, v_i = simModule(x_i, v_i, a_torch)
     records.append((x_i, v_i))
     return records
+
+
+def forwardSimulation2(sim, x_i, v_i, a_torch, a_control, simModule):
+    records = []
+    vMin, vMax= -0.1, 0.1
+    key_vertex = sim.sceneConfig.customAttachmentVertexIdx[0][1]
+    for step in range(sim.sceneConfig.stepNum): # sim.sceneConfig.stepNum
+        # print("step", step, "in total step", sim.sceneConfig.stepNum)
+        records.append((x_i, v_i))
+        controllerOut = a_control[step]
+        controllerOut = torch.clamp(controllerOut, min=-0.1, max=0.1)
+        delta_a_torch = (controllerOut + 1.) / 2. * (vMax - vMin) + vMin
+
+        if torch.any(torch.isnan(delta_a_torch)):
+            print("NaN encountered for action in step {}: {}".format(step, delta_a_torch))
+            input("wait")
+        a_torch = a_torch + delta_a_torch
+
+        attach_point_pos = torch.cat([x_i[i*3:(i+1)*3] for i in key_vertex], dim=0)
+        a_torch = torch.max(torch.min(a_torch, attach_point_pos+0.1), attach_point_pos-0.1)
+        x_i, v_i = simModule(x_i, v_i,  a_torch)
+    records.append((x_i, v_i))
+    return records
